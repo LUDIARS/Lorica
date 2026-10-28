@@ -1,0 +1,9 @@
+{
+  "name": "build-hardening",
+  "description": "Apply explicit compiler/linker mitigations to locally built targets and distribute the library as a CMake package; reject unsupported configurations.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [{"pathPattern": "(^|/)cmake/[^/]+\\.(cmake|in)$"}, {"pathPattern": "^CMakeLists\\.txt$"}],
+  "specRefs": ["spec/feature/security-contracts.md"],
+  "rationale": "Build policy is independent of runtime input validation and cannot retrofit precompiled dependencies."
+}

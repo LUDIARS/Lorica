@@ -1,0 +1,9 @@
+{
+  "name": "consumer-integration",
+  "description": "Demonstrate installed-package consumption and external build-policy injection in an independent, bounded C++ example.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [{"pathPattern": "(^|/)examples/consumer/(main\\.cpp|CMakeLists\\.txt)$"}],
+  "specRefs": ["spec/feature/security-contracts.md", "spec/test/verification.md"],
+  "rationale": "A consumer example makes adoption visible without being mistaken for production-service integration."
+}

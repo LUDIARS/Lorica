@@ -1,0 +1,9 @@
+{
+  "name": "boundary-validation",
+  "description": "Validate caller-supplied byte ranges, size arithmetic and cumulative request budgets before processing untrusted input. Does not establish pointer lifetime or ownership.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [{"pathPattern": "(^|/)include/lorica/[^/]+\\.hpp$"}],
+  "specRefs": ["spec/feature/security-contracts.md"],
+  "rationale": "The reusable input-validation contract is Lorica's runtime responsibility; no allocation, I/O or process control belongs here."
+}

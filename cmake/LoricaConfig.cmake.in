@@ -1,0 +1,4 @@
+@PACKAGE_INIT@
+include("${CMAKE_CURRENT_LIST_DIR}/LoricaTargets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/LoricaHardening.cmake")
+check_required_components(Lorica)

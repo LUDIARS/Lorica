@@ -1,0 +1,16 @@
+{
+  "mergeCouplingThreshold": 1,
+  "layers": [
+    {"glob": "include/lorica/**", "layer": "domain"},
+    {"glob": "cmake/**", "layer": "infrastructure"},
+    {"glob": "tools/**", "layer": "infrastructure"},
+    {"glob": "tests/**", "layer": "verification"},
+    {"glob": "examples/consumer/**", "layer": "application"}
+  ],
+  "allow": {
+    "domain": [],
+    "infrastructure": [],
+    "application": ["domain"],
+    "verification": ["domain", "infrastructure", "application"]
+  }
+}

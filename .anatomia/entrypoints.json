@@ -1,0 +1,7 @@
+{
+  "includeTests": true,
+  "include": [
+    {"symbol": "tests/fuzz_boundary.cpp#LLVMFuzzerTestOneInput", "class": "framework-lifecycle"}
+  ],
+  "exclude": []
+}

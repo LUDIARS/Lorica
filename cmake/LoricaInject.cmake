@@ -1,0 +1,18 @@
+# Pass via CMAKE_PROJECT_TOP_LEVEL_INCLUDES. Runs after the consuming project
+# has declared its targets. A required allowlist prevents a silent no-op.
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/LoricaHardening.cmake")
+if(NOT LORICA_TARGETS)
+    message(FATAL_ERROR "Lorica injection requires -DLORICA_TARGETS=target1;target2")
+endif()
+set_property(GLOBAL PROPERTY LORICA_REQUESTED_TARGETS "${LORICA_TARGETS}")
+function(_lorica_apply_requested)
+    get_property(requested GLOBAL PROPERTY LORICA_REQUESTED_TARGETS)
+    if(NOT requested)
+        message(FATAL_ERROR "Lorica: requested injection targets were removed")
+    endif()
+    foreach(target IN LISTS requested)
+        lorica_harden_target("${target}")
+    endforeach()
+endfunction()
+cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL _lorica_apply_requested)

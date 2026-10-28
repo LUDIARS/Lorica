@@ -1,0 +1,9 @@
+{
+  "name": "artifact-inspection",
+  "description": "Inspect selected mitigation metadata in trusted local PE/ELF build artifacts without executing them; report the limits of metadata evidence.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [{"pathPattern": "(^|/)tools/verify_binary\\.py$"}],
+  "specRefs": ["spec/feature/security-contracts.md", "spec/test/verification.md"],
+  "rationale": "Post-build inspection is an external diagnostic tool, not a runtime security boundary or full instrumentation verifier."
+}

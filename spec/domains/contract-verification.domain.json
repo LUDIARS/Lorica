@@ -1,0 +1,9 @@
+{
+  "name": "contract-verification",
+  "description": "Exercise arithmetic extremes, byte-view bounds, budget rejection and malformed artifact metadata; expose a libFuzzer callback for instrumented testing.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [{"pathPattern": "(^|/)tests/[^/]+\\.(cpp|py)$"}],
+  "specRefs": ["spec/test/verification.md"],
+  "rationale": "Tests specify observable contract behavior and are not production callers. LLVMFuzzerTestOneInput is called by libFuzzer, not an unused application function."
+}
