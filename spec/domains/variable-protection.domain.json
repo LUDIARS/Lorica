@@ -1,0 +1,9 @@
+{
+  "name": "variable-protection",
+  "description": "Seal dedicated OS mappings read-only and expose immutable scalar value copies.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [{"pathPattern": "(^|/)(include/lorica/(sealed_value|detail/sealed_region)\\.hpp|src/sealed_region_(windows|linux)\\.cpp)$"}],
+  "specRefs": ["spec/feature/sealed-values.md"],
+  "rationale": "Dedicated page ownership and immutable scalar access form one protection contract, with no general allocator or cryptography."
+}

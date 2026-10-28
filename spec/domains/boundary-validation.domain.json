@@ -3,7 +3,7 @@
   "description": "Validate caller-supplied byte ranges, size arithmetic and cumulative request budgets before processing untrusted input. Does not establish pointer lifetime or ownership.",
   "presetRules": [],
   "templateRules": [],
-  "membership": [{"pathPattern": "(^|/)include/lorica/[^/]+\\.hpp$"}],
+  "membership": [{"pathPattern": "(^|/)include/lorica/(checked_size|input_budget|byte_view)\\.hpp$"}],
   "specRefs": ["spec/feature/security-contracts.md"],
   "rationale": "The reusable input-validation contract is Lorica's runtime responsibility; no allocation, I/O or process control belongs here."
 }

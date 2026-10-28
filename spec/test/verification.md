@@ -38,3 +38,14 @@ boundary-case executable entry point. `tests/fuzz_boundary.cpp` exports the exac
 caller by design. `.anatomia/entrypoints.json` declares this genuine external
 entry point, without manufacturing a call edge or exempting unrelated functions.
 The naming difference between this ABI and `main`/`require` is intentional.
+
+## Read-only values
+
+`lorica.protection` checks immutable scalar reads, edge values, copy independence,
+ownership restrictions and invalid region inputs. Windows additionally inspects
+actual OS page permissions. `lorica.protection_write_denied` runs a child process
+that deliberately writes sealed bytes, accepting only Windows access violation
+0xC0000005 or Linux SIGSEGV. Other errors, normal exits and timeouts fail the check.
+Crash UI/core dumps are disabled in this child. These tests must run in the review
+environment; merely compiling them does not verify OS enforcement. Linux and
+concurrent-reader sanitizer coverage must be recorded independently.

@@ -1,6 +1,6 @@
 # Dependency and memory-safety review
 
-Runtime: C++17 standard library only. No third-party packages, vendored sources,
+Runtime: C++17 standard library and Windows/Linux virtual-memory APIs. No third-party packages, vendored sources,
 transitive package dependencies, network downloads or install-time code execution.
 Build: CMake 3.24+ and a supported compiler/linker. Optional artifact inspection:
 Python 3 standard library, plus trusted binutils `readelf` for ELF. Optional fuzzing:
@@ -18,11 +18,24 @@ Memory audit:
   only after proving offset <= capacity.
 - Byte reads check the declared bound; null + zero pointer arithmetic is avoided.
 - Pointer provenance, actual backing extent and lifetime remain caller preconditions.
-- No dynamic allocation/free is performed by the headers; they cannot detect UAF
-  or double-free elsewhere in the service.
+- Boundary headers allocate nothing. The optional compiled protection component
+  owns dedicated OS mappings; it cannot detect UAF or double-free elsewhere.
 - Budgets update all dimensions only on success; callers must not race on a budget.
 - Read-only views do not synchronize mutations of the underlying object.
 - No unchecked C ABI or Rust/unsafe bridge is included in this first version.
 
 Artifact inspection is for trusted local build outputs, not an internet-facing
 parser. It invokes a trusted readelf without a shell and limits PE file allocation.
+
+Write-protection audit: scalar size comes from sizeof, with no user-controlled
+rounding arithmetic. OS calls allocate complete pages independently of the heap.
+Source bytes are copied synchronously before sealing; no writable pointer escapes
+the scalar API. Failed sealing releases its mapping before throwing. Successful
+owners release once; copy and move are disabled. Cleanup failure terminates instead
+of silently leaking. Concurrent loads only read immutable bytes; concurrent owner
+destruction remains forbidden. Returned copies and owner metadata are unprotected.
+No encryption, authentication, secure erase or general allocator is invented.
+Tests use Python standard-library subprocess without a shell; no installer or
+transitive package dependencies were introduced. Python is needed only when
+building protection tests. Runtime tests and Linux validation remain separately
+recorded; successful Windows compilation is not evidence of those checks.

@@ -8,6 +8,7 @@ Initial components (C++17, CMake 3.24+):
 | Component | Contract |
 | --- | --- |
 | `Lorica::boundary` | Checked size arithmetic, bounded byte views, cumulative request budgets |
+| `Lorica::protection` | Dedicated OS read-only storage for immutable arithmetic/enum values |
 | `lorica_harden_target` | Target-local compiler/linker mitigations; unsupported platforms fail configuration |
 | `LoricaInject.cmake` | External CMake injection for an explicit target allowlist |
 | `tools/verify_binary.py` | Selected PE/ELF executable metadata checks; does not execute the binary |
@@ -71,6 +72,30 @@ or make a compromised process trustworthy. Later conflicting build flags can
 weaken protection: inspect actual commands and artifacts. No universal memory
 barrier, secure allocator, cryptography or authentication is implemented here.
 `std::atomic_thread_fence` (thread ordering) is unrelated to these protections.
+
+## Write-protected variables
+
+Link `Lorica::protection` and include `<lorica/sealed_value.hpp>`:
+
+```cpp
+const lorica::sealed_value<unsigned> maximum_requests(128);
+const unsigned limit = maximum_requests.load(); // Unprotected value copy.
+```
+
+The original bytes live in a dedicated OS mapping requested without execute access and sealed read-only
+before construction returns. There is no setter or mutable pointer. Only arithmetic
+and enum values are supported. OS allocation/protection errors throw; there is no
+writable fallback. Windows and Linux are supported by the implementation;
+platform test execution must be verified separately. Disable the compiled component
+explicitly with `LORICA_BUILD_PROTECTION=OFF` for boundary-only use.
+
+This is appropriate for sparse immutable configuration, not every variable: each
+value consumes at least one page. A forbidden write faults the process. It does not
+protect copies, owner metadata or a process that can change its own permissions.
+It does not hide secrets, securely erase memory or protect unrelated allocations.
+The owner must outlive reads and be safely published to concurrent readers.
+See [the protection contract](spec/feature/sealed-values.md) for limits and suggested
+development tools (ASan, UBSan, TSan and fuzzing).
 
 See [security contracts](spec/feature/security-contracts.md),
 [verification](spec/test/verification.md), and [dependency review](DEPENDENCIES.md).
