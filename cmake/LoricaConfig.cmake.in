@@ -1,4 +1,6 @@
 @PACKAGE_INIT@
+set_and_check(LORICA_INCLUDE_DIR "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
 include("${CMAKE_CURRENT_LIST_DIR}/LoricaTargets.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/LoricaHardening.cmake")
+set_property(GLOBAL PROPERTY LORICA_UNSAFE_API_HEADER "${LORICA_INCLUDE_DIR}/lorica/unsafe_api.hpp")
 check_required_components(Lorica)

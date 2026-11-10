@@ -3,13 +3,15 @@
 Composable security libraries for C++ services. Project code: **Lr**.
 Lorica means armour: these components add layers of protection, not complete memory safety.
 
-Initial components (C++17, CMake 3.24+):
+Components (C++17 unless noted, CMake 3.24+):
 
 | Component | Contract |
 | --- | --- |
 | `Lorica::boundary` | Checked size arithmetic, bounded byte views, cumulative request budgets |
+| `Lorica::boundary` (C++20 headers) | Checked integers of any type, bounded string copy/append/format, endian-safe byte reading ([checked APIs](spec/feature/checked-apis.md)) |
 | `Lorica::protection` | Dedicated OS read-only storage for immutable arithmetic/enum values |
-| `lorica_harden_target` | Target-local compiler/linker mitigations; unsupported platforms fail configuration |
+| `lorica_harden_target` | Target-local compiler/linker mitigations; `EXTENDED` adds standard library hardening, FORTIFY, zero-initialized locals, stack clash and CET/BTI; unsupported platforms fail configuration |
+| `lorica_deprecate_unsafe_apis` | Uses of `strcpy`/`strcat`/`sprintf`/`vsprintf`/`wcscpy`/`wcscat` in a target's C++ sources fail to compile; every deprecation becomes an error; [limits](spec/feature/security-contracts.md#SPEC-LR-UNSAFE-API) |
 | `LoricaInject.cmake` | External CMake injection for an explicit target allowlist |
 | `tools/verify_binary.py` | Selected PE/ELF executable metadata checks; does not execute the binary |
 
@@ -35,7 +37,8 @@ Existing CMake projects can inject build protection without editing their source
 ```sh
 cmake -S /service/source -B /service/build \
   -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=/path/to/Lorica/cmake/LoricaInject.cmake \
-  '-DLORICA_TARGETS=my_service;my_parser'
+  '-DLORICA_TARGETS=my_service;my_parser' \
+  -DLORICA_PROFILE=extended -DLORICA_DEPRECATE_UNSAFE_APIS=ON   # optional
 ```
 
 Every listed target must exist and be locally compiled. Boundary checks still
@@ -54,6 +57,30 @@ if (!bytes || !budget.consume(*bytes, element_count, 1)) {
 }
 // Allocate/process only after successful checks. This example is schematic.
 ```
+
+With C++20, the checked APIs cover the rest of a typical parser:
+
+```cpp
+#include <lorica/bounded_text.hpp>
+#include <lorica/byte_reader.hpp>
+#include <lorica/checked_integer.hpp>
+
+lorica::byte_reader in(packet);                   // std::span<const std::byte>
+const auto count = in.read_big_endian<std::uint32_t>();
+const auto name = in.read_prefixed<std::uint16_t, std::endian::big>();
+const auto total = count ? lorica::checked_multiply(*count, record_size) : std::nullopt;
+char label[32];
+if (!name || !total || !lorica::format_into(label, "{} records", *count)) return reject_request();
+```
+
+`lorica_harden_target(my_service EXTENDED)` and `lorica_deprecate_unsafe_apis(my_service)`
+add the hardened standard library (C++26 standard library hardening, available today
+as vendor modes) and reject the unbounded C APIs at compile time. See the
+[extended profile](spec/feature/security-contracts.md#SPEC-LR-EXTENDED) for the exact
+options, toolchain minimums (GCC 12, Clang 18, MSVC 19.44 x64) and limits, and the
+[unsafe API rejection](spec/feature/security-contracts.md#SPEC-LR-UNSAFE-API) for the
+toolchains and targets it refuses and what it does not see (compiler builtins,
+system headers). `format_into` needs a library with `__cpp_lib_format`.
 
 ## Protection limits
 
