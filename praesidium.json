@@ -1,12 +1,76 @@
 {
   "version": 1,
   "native": [
-    {"file": "src/sealed_region_windows.cpp", "standard": "c++17", "includes": ["include"]},
-    {"file": "src/sealed_region_linux.cpp", "standard": "c++17", "includes": ["include"]},
-    {"file": "tests/protection.cpp", "standard": "c++17", "includes": ["include"]},
-    {"file": "examples/consumer/main.cpp", "standard": "c++17", "includes": ["include"]},
-    {"file": "tests/boundary.cpp", "standard": "c++17", "includes": ["include"]},
-    {"file": "tests/fuzz_boundary.cpp", "standard": "c++17", "includes": ["include"]}
+    {
+      "file": "src/sealed_region_windows.cpp",
+      "standard": "c++17",
+      "includes": [
+        "include"
+      ]
+    },
+    {
+      "file": "src/sealed_region_linux.cpp",
+      "standard": "c++17",
+      "includes": [
+        "include"
+      ]
+    },
+    {
+      "file": "tests/protection.cpp",
+      "standard": "c++17",
+      "includes": [
+        "include"
+      ]
+    },
+    {
+      "file": "examples/consumer/main.cpp",
+      "standard": "c++17",
+      "includes": [
+        "include"
+      ]
+    },
+    {
+      "file": "tests/boundary.cpp",
+      "standard": "c++17",
+      "includes": [
+        "include"
+      ]
+    },
+    {
+      "file": "tests/fuzz_boundary.cpp",
+      "standard": "c++17",
+      "includes": [
+        "include"
+      ]
+    },
+    {
+      "file": "src/contract_violation.cpp",
+      "standard": "c++17",
+      "includes": [
+        "include"
+      ]
+    },
+    {
+      "file": "tests/contracts_observe.cpp",
+      "standard": "c++17",
+      "includes": [
+        "include"
+      ]
+    },
+    {
+      "file": "tests/contracts_ignore.cpp",
+      "standard": "c++17",
+      "includes": [
+        "include"
+      ]
+    },
+    {
+      "file": "tests/contracts_termination.cpp",
+      "standard": "c++17",
+      "includes": [
+        "include"
+      ]
+    }
   ],
   "web": []
 }
