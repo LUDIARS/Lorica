@@ -27,9 +27,16 @@ or abort for ordinary rejected input. No C ABI/handle registry is promised in v0
 Windows flags: /GS /sdl /guard:cf at compile; /guard:cf /DYNAMICBASE /NXCOMPAT
 at executable/shared linking, plus /HIGHENTROPYVA on 64-bit.
 Linux flags: -fstack-protector-strong, position-independent code; -pie for executables;
-RELRO, NOW, noexecstack for executable/shared linking. CFI, CET, FORTIFY and standard
-library hardening require additional toolchain-specific qualification and are not
-claimed by this initial profile. Compiler/linker rejection fails the build.
+RELRO, NOW, noexecstack for executable/shared linking. Compiler/linker rejection fails the build.
+Also on Linux, stated explicitly so they do not depend on a distribution's compiler defaults:
+standard-library precondition checks (`_GLIBCXX_ASSERTIONS` for libstdc++,
+`_LIBCPP_HARDENING_MODE_FAST` for libc++ 18+; an older libc++ ignores the macro and gets no checks);
+`_FORTIFY_SOURCE` (3 with GCC/Clang 12+, otherwise 2) in the Release, RelWithDebInfo and MinSizeRel
+configurations only, because fortified calls require optimization; `-fstack-clash-protection` and
+`-fcf-protection=full` where the compiler accepts them, with a configure warning where it does not
+(`-fcf-protection` is x86 only). A build with an empty or Debug configuration gets no FORTIFY.
+Precondition checks abort the process on violation; they bound standard containers, not raw
+pointers. Clang CFI is not applied.
 
 Binary metadata does not prove stack checks, CFG call-site coverage, or all
 prebuilt modules were compiled with protection. PE checking currently checks flags

@@ -67,6 +67,10 @@ and use the same budget throughout the request. Depth must be supplied truthfull
 Timeouts, concurrency limits and authentication remain service responsibilities.
 
 Hardening supports Windows MSVC-compatible toolchains and Linux GCC/Clang.
+On Linux it requests stack protection, PIE, full RELRO, a non-executable stack,
+standard-library precondition checks, `_FORTIFY_SOURCE` (optimized configurations only),
+and stack-clash and control-flow protection where the compiler supports them
+(see [security contracts](spec/feature/security-contracts.md)).
 It does not protect prebuilt dependencies, prove every object has instrumentation,
 or make a compromised process trustworthy. Later conflicting build flags can
 weaken protection: inspect actual commands and artifacts. No universal memory
