@@ -30,6 +30,16 @@ if(LORICA_BUILD_PROTECTION)
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
 
+# Library emulation of C++26 contracts. The violation handler is compiled once so
+# that every translation unit and shared library in a process shares it.
+add_library(lorica_contracts STATIC src/contract_violation.cpp)
+add_library(Lorica::contracts ALIAS lorica_contracts)
+set_target_properties(lorica_contracts PROPERTIES EXPORT_NAME contracts)
+target_link_libraries(lorica_contracts PUBLIC Lorica::boundary)
+lorica_harden_target(lorica_contracts)
+install(TARGETS lorica_contracts EXPORT LoricaTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
 option(LORICA_BUILD_TESTS "Build boundary contract tests" OFF)
 option(LORICA_BUILD_FUZZER "Build Clang libFuzzer target (test use only)" OFF)
 if(LORICA_BUILD_TESTS)
@@ -38,8 +48,46 @@ if(LORICA_BUILD_TESTS)
     target_link_libraries(lorica_boundary_tests PRIVATE Lorica::boundary)
     lorica_harden_target(lorica_boundary_tests)
     add_test(NAME lorica.boundary COMMAND lorica_boundary_tests)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+    # Contracts: observe at each supported standard, ignore, then termination in children.
+    foreach(standard IN ITEMS 17 20 23)
+        if(standard IN_LIST CMAKE_CXX_COMPILE_FEATURES OR "cxx_std_${standard}" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+            add_executable(lorica_contracts_observe_cxx${standard} tests/contracts_observe.cpp)
+            target_link_libraries(lorica_contracts_observe_cxx${standard} PRIVATE Lorica::contracts)
+            target_compile_definitions(lorica_contracts_observe_cxx${standard} PRIVATE
+                LORICA_CONTRACT_EVALUATION_SEMANTIC=observe)
+            set_target_properties(lorica_contracts_observe_cxx${standard} PROPERTIES
+                CXX_STANDARD ${standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+            lorica_harden_target(lorica_contracts_observe_cxx${standard})
+            add_test(NAME lorica.contracts.observe.cxx${standard}
+                COMMAND lorica_contracts_observe_cxx${standard})
+        endif()
+    endforeach()
+    add_executable(lorica_contracts_ignore tests/contracts_ignore.cpp)
+    target_link_libraries(lorica_contracts_ignore PRIVATE Lorica::contracts)
+    target_compile_definitions(lorica_contracts_ignore PRIVATE LORICA_CONTRACT_EVALUATION_SEMANTIC=ignore)
+    lorica_harden_target(lorica_contracts_ignore)
+    add_test(NAME lorica.contracts.ignore COMMAND lorica_contracts_ignore)
+    set(lorica_contract_variants enforce quick_enforce)
+    if(NOT MSVC)
+        list(APPEND lorica_contract_variants enforce_noexceptions)
+    endif()
+    foreach(variant IN LISTS lorica_contract_variants)
+        string(REPLACE "_noexceptions" "" semantic "${variant}")
+        add_executable(lorica_contracts_${variant} tests/contracts_termination.cpp)
+        target_link_libraries(lorica_contracts_${variant} PRIVATE Lorica::contracts)
+        target_compile_definitions(lorica_contracts_${variant} PRIVATE
+            LORICA_CONTRACT_EVALUATION_SEMANTIC=${semantic})
+        if(variant MATCHES "_noexceptions$")
+            target_compile_options(lorica_contracts_${variant} PRIVATE -fno-exceptions)
+        endif()
+        lorica_harden_target(lorica_contracts_${variant})
+        add_test(NAME lorica.contracts.${variant}
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/contract_termination.py
+                $<TARGET_FILE:lorica_contracts_${variant}> ${semantic})
+    endforeach()
     if(LORICA_BUILD_PROTECTION)
-        find_package(Python3 REQUIRED COMPONENTS Interpreter)
         add_executable(lorica_protection_tests tests/protection.cpp)
         target_link_libraries(lorica_protection_tests PRIVATE Lorica::protection)
         lorica_harden_target(lorica_protection_tests)

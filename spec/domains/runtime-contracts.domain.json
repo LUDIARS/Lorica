@@ -1,0 +1,12 @@
+{
+  "name": "runtime-contracts",
+  "description": "Check preconditions, postconditions and assertions of correct programs with the C++26 contract semantics (ignore, observe, enforce, quick_enforce) and a replaceable violation handler. Not input validation.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {"pathPattern": "(^|/)include/lorica/(contracts|contract_violation)\\.hpp$"},
+    {"pathPattern": "(^|/)src/contract_violation\\.cpp$"}
+  ],
+  "specRefs": ["spec/feature/contracts.md"],
+  "rationale": "Invariant violations (bugs) are a separate responsibility from rejecting hostile input; keeping them apart prevents validation from being compiled out with the ignore semantic."
+}
