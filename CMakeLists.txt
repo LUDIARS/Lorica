@@ -30,14 +30,20 @@ if(LORICA_BUILD_PROTECTION)
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
 
-# Library emulation of C++26 contracts. The violation handler is compiled once so
-# that every translation unit and shared library in a process shares it.
-add_library(lorica_contracts STATIC src/contract_violation.cpp)
+# All modules in a process must import the same contracts runtime.
+add_library(lorica_contracts SHARED src/contract_violation.cpp)
 add_library(Lorica::contracts ALIAS lorica_contracts)
-set_target_properties(lorica_contracts PROPERTIES EXPORT_NAME contracts)
+set_target_properties(lorica_contracts PROPERTIES
+    EXPORT_NAME contracts
+    DEFINE_SYMBOL LORICA_BUILDING_CONTRACTS
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES
+    SOVERSION ${PROJECT_VERSION_MAJOR})
 target_link_libraries(lorica_contracts PUBLIC Lorica::boundary)
 lorica_harden_target(lorica_contracts)
 install(TARGETS lorica_contracts EXPORT LoricaTargets
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 option(LORICA_BUILD_TESTS "Build boundary contract tests" OFF)
@@ -49,6 +55,8 @@ if(LORICA_BUILD_TESTS)
     lorica_harden_target(lorica_boundary_tests)
     add_test(NAME lorica.boundary COMMAND lorica_boundary_tests)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+    add_subdirectory(tests/contract_modules)
 
     # Contracts: observe at each supported standard, ignore, then termination in children.
     foreach(standard IN ITEMS 17 20 23)

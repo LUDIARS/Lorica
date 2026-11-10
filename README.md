@@ -76,7 +76,8 @@ barrier, secure allocator, cryptography or authentication is implemented here.
 
 ## Contracts (C++26 emulation)
 
-Link `Lorica::contracts` and include `<lorica/contracts.hpp>`:
+Deploy one contracts runtime DLL/shared object for the executable and all its plugins.
+Link each consumer to `Lorica::contracts` and include `<lorica/contracts.hpp>`:
 
 ```cpp
 int element(std::span<const int> values, std::size_t index) {

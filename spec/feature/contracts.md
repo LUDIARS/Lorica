@@ -24,8 +24,19 @@ and do not encode input validation as a contract, because `ignore` removes it.
 `is_terminating`), `invoke_default_contract_violation_handler`. The replaceable
 `::handle_contract_violation` is emulated by `set_violation_handler` (atomic,
 returns the previous handler, `nullptr` = default): the one process-wide mutable
-value in Lorica, comparable to `std::set_terminate`. It lives in a compiled static
-library so that all translation units of a binary share one handler.
+value in Lorica, comparable to `std::set_terminate`. Every participating executable and plugin must dynamically
+link the same loaded instance of `Lorica::contracts`. That runtime owns both the
+atomic handler (exchange with acquire-release, load with acquire) and the
+per-thread re-entry guard. Independent runtime copies, static embeddings and
+separate loader namespaces have independent state and are outside this guarantee.
+
+Ship the runtime DLL next to the executable on Windows (link the import library);
+on Linux deploy the SONAME in the loader search path. Rebuild and relink all
+consumers of the former static archive. Use compatible C++ ABIs and standard
+libraries; on MSVC use matching configurations and the shared CRT (/MD or /MDd)
+across modules, including plugins whose handlers throw. Replacing the handler
+does not wait for callbacks in flight. Before unloading a handler's plugin,
+quiesce callers, remove its handler, and wait for any outstanding calls.
 
 ## Evaluation semantics
 
@@ -78,3 +89,21 @@ The enumerators and accessor names are kept identical to make that mechanical.
 `tests/contracts_termination.cpp` run in children by `tests/contract_termination.py`
 for enforce, quick_enforce and enforce with `-fno-exceptions` (abort with diagnostic,
 custom returning handler still aborts, re-entry abort, trap with empty stderr).
+
+`tests/contract_modules` also builds against an installed Lorica package. Two
+shared libraries independently set, read and reset the handler and raise observe
+violations. On Linux the test binds locally defined functions so that symbol
+interposition cannot hide a statically embedded copy.
+
+To reproduce the old behaviour, install unmodified PR #1 to a fresh prefix,
+then build the new fixture as a standalone consumer:
+
+```sh
+cmake -S tests/contract_modules -B probe -DCMAKE_PREFIX_PATH=<absolute-prefix> -DLORICA_TEST_HANDLER_STATE=split
+cmake --build probe --config Release
+ctest --test-dir probe -C Release -V
+```
+
+For a Linux default-binding observation use a fresh build with
+`-DLORICA_TEST_BIND_LOCAL=OFF -DLORICA_TEST_HANDLER_STATE=probe`. For a fixed
+installation omit both overrides: the default oracle requires shared state.
