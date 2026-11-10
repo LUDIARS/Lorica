@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string_view>
+#include <thread>
 
 using lorica::contracts::contract_violation;
 using lorica::contracts::violation_handler;
@@ -56,6 +57,18 @@ int main(int argc, char** argv) {
     require(module_b::get() == (shared ? nullptr : second), "A reset as seen by B");
     require(module_b::set(nullptr) == (shared ? nullptr : second), "B reset return value");
     require(!module_b::get(), "reset in B");
+    if (shared) {
+        // Exchanges on two threads must agree on one of the two possible orders.
+        violation_handler previous_a = nullptr;
+        std::thread writer([&] { previous_a = module_a::set(first); });
+        const auto previous_b = module_b::set(second);
+        writer.join();
+        const bool a_first = !previous_a && previous_b == first;
+        const bool b_first = !previous_b && previous_a == second;
+        require(a_first || b_first, "exchanges did not form a single order");
+        require(module_a::get() == module_b::get(), "final handlers differ");
+        require(module_a::set(nullptr) == (a_first ? second : first), "last writer lost");
+    }
     require(expected == "probe" || expected == (shared ? "shared" : "split"),
             "observed handler state differs from expected");
 }

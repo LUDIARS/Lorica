@@ -3,11 +3,13 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     project(LoricaContractModules LANGUAGES CXX)
     find_package(Lorica CONFIG REQUIRED)
     enable_testing()
+    # Probe an installed PR #1 archive with either ELF binding mode.
+    option(LORICA_TEST_BIND_LOCAL "Bind ELF calls to definitions in the same test DSO" ON)
+    set(LORICA_TEST_HANDLER_STATE shared CACHE STRING "Expected handler state: shared, split or probe")
+else()
+    set(LORICA_TEST_BIND_LOCAL ON)
+    set(LORICA_TEST_HANDLER_STATE shared)
 endif()
-
-# Keep this runnable against an installed, unmodified PR #1 package.
-option(LORICA_TEST_BIND_LOCAL "Bind ELF calls to definitions in the same test DSO" ON)
-set(LORICA_TEST_HANDLER_STATE shared CACHE STRING "Expected handler state: shared, split or probe")
 
 foreach(side IN ITEMS a b)
     set(target lorica_contract_module_${side})
@@ -21,11 +23,12 @@ foreach(side IN ITEMS a b)
     lorica_harden_target(${target})
 endforeach()
 
+find_package(Threads REQUIRED)
 add_executable(lorica_contract_modules main.cpp)
 # Only the plugins link Lorica::contracts. A third copy in the driver would
 # make it harder to identify which binary owns the handler.
 target_link_libraries(lorica_contract_modules PRIVATE
-    Lorica::boundary lorica_contract_module_a lorica_contract_module_b)
+    Threads::Threads Lorica::boundary lorica_contract_module_a lorica_contract_module_b)
 lorica_harden_target(lorica_contract_modules)
 add_test(NAME lorica.contracts.modules
     COMMAND lorica_contract_modules "${LORICA_TEST_HANDLER_STATE}")

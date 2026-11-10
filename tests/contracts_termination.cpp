@@ -33,6 +33,8 @@ void violating_handler(const lorica::contracts::contract_violation&) {
 // @implements SPEC-LR-VERIFY
 int main(int argc, char** argv) {
 #ifdef _WIN32
+    // Exercise the CRT abort path with exit code 3, independently of WER.
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 #else
     const rlimit limit{0, 0};
@@ -48,5 +50,5 @@ int main(int argc, char** argv) {
         return 2;
     }
     static_cast<void>(checked_index(-1));
-    return 3; // Reaching here means the contract did not terminate.
+    return 5; // Reaching here means the contract did not terminate.
 }

@@ -83,7 +83,8 @@ LORICA_CONTRACTS_API violation_handler set_violation_handler(violation_handler h
 [[nodiscard]] LORICA_CONTRACTS_API violation_handler get_violation_handler() noexcept;
 
 // Writes one line to stderr without allocating: location, kind, semantic, predicate.
-LORICA_CONTRACTS_API void invoke_default_contract_violation_handler(const contract_violation& violation) noexcept;
+LORICA_CONTRACTS_API void invoke_default_contract_violation_handler(
+    const contract_violation& violation) noexcept;
 
 [[nodiscard]] LORICA_CONTRACTS_API const char* to_string(assertion_kind kind) noexcept;
 [[nodiscard]] LORICA_CONTRACTS_API const char* to_string(evaluation_semantic semantic) noexcept;
@@ -93,9 +94,9 @@ namespace detail {
 // Called by the checking templates on a runtime violation of an observe/enforce
 // contract. Returns only for observe; enforce aborts after the handler returns.
 // A violation raised while a handler runs on the same thread aborts immediately.
-LORICA_CONTRACTS_API void handle_violation(assertion_kind kind, evaluation_semantic semantic, detection_mode mode,
-                      const char* comment, source_location location,
-                      std::exception_ptr evaluation_exception);
+LORICA_CONTRACTS_API void handle_violation(
+    assertion_kind kind, evaluation_semantic semantic, detection_mode mode,
+    const char* comment, source_location location, std::exception_ptr evaluation_exception);
 } // namespace detail
 } // namespace lorica::contracts
 

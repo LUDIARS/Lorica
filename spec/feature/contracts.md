@@ -92,7 +92,8 @@ custom returning handler still aborts, re-entry abort, trap with empty stderr).
 
 `tests/contract_modules` also builds against an installed Lorica package. Two
 shared libraries independently set, read and reset the handler and raise observe
-violations. On Linux the test binds locally defined functions so that symbol
+violations. With a shared runtime two writers also check atomic exchange ordering
+across threads and modules. On Linux the test binds locally defined functions so that symbol
 interposition cannot hide a statically embedded copy.
 
 To reproduce the old behaviour, install unmodified PR #1 to a fresh prefix,
