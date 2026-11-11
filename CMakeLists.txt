@@ -43,6 +43,21 @@ if(LORICA_BUILD_TESTS)
     # the unbounded C APIs rejected, where the toolchain offers each. Checks the
     # toolchain cannot run are reported as not run, never as passed.
     lorica_extended_hardening_supported(lorica_extended)
+    # Native generators with a compilation database can check the actual C/C++
+    # command lines. Fault-injection cases require an otherwise capable host.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING AND
+       CMAKE_GENERATOR MATCHES "^(Ninja|Ninja Multi-Config|Unix Makefiles)$")
+        foreach(case normal missing_flag older_libc unoptimized unknown_cpu)
+            add_test(NAME lorica.profiles.${case} COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/profiles/check.py" "${CMAKE_COMMAND}"
+                "${CMAKE_CURRENT_BINARY_DIR}/profiles/$<CONFIG>" "${CMAKE_GENERATOR}"
+                "${CMAKE_CXX_COMPILER}" "${CMAKE_CXX_FLAGS}" "${case}")
+            set_tests_properties(lorica.profiles.${case} PROPERTIES SKIP_RETURN_CODE 77)
+            if(NOT lorica_extended AND NOT case STREQUAL "normal")
+                set_tests_properties(lorica.profiles.${case} PROPERTIES DISABLED TRUE)
+            endif()
+        endforeach()
+    endif()
     lorica_unsafe_api_rejection_supported(lorica_unsafe_api)
     foreach(standard 20 23)
         add_executable(lorica_checked_tests_cxx${standard} tests/checked.cpp)
@@ -64,7 +79,9 @@ if(LORICA_BUILD_TESTS)
         target_compile_features(lorica_hardening_tests PRIVATE cxx_std_17)
         target_compile_definitions(lorica_hardening_tests PRIVATE
             "$<${lorica_fortified}:LORICA_TEST_EXPECT_FORTIFY=3>")
+        lorica_harden_target(lorica_hardening_tests)
         lorica_harden_target(lorica_hardening_tests EXTENDED)
+        lorica_harden_target(lorica_hardening_tests)
         add_test(NAME lorica.hardening_stops
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/hardening_fault.py
                 $<TARGET_FILE:lorica_hardening_tests>

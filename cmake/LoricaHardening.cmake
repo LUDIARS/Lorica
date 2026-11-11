@@ -37,6 +37,171 @@ function(_lorica_require_compiled_target target)
     endif()
 endfunction()
 
+include(CheckCompilerFlag)
+include(CheckSourceCompiles)
+include(CheckLinkerFlag)
+include(CMakePushCheckState)
+
+# CMake's check modules cache by result name. Share probes between targets,
+# but recheck after reconfiguration or a subdirectory's toolchain flag change.
+function(_lorica_prepare_checks)
+    set(configs ${CMAKE_CONFIGURATION_TYPES} "${CMAKE_BUILD_TYPE}" "${CMAKE_TRY_COMPILE_CONFIGURATION}")
+    list(APPEND configs Debug Release RelWithDebInfo MinSizeRel)
+    set(inputs "${CMAKE_SYSROOT};${CMAKE_SYSROOT_COMPILE};${CMAKE_SYSROOT_LINK};${CMAKE_TRY_COMPILE_TARGET_TYPE}")
+    foreach(lang C CXX EXE_LINKER)
+        list(APPEND inputs "${CMAKE_${lang}_COMPILER}" "${CMAKE_${lang}_COMPILER_TARGET}" "${CMAKE_${lang}_FLAGS}")
+        foreach(config IN LISTS configs)
+            string(TOUPPER "${config}" config)
+            list(APPEND inputs "${config}=${CMAKE_${lang}_FLAGS_${config}}")
+        endforeach()
+    endforeach()
+    string(SHA256 signature "${inputs}")
+    get_property(previous GLOBAL PROPERTY _LORICA_PROBE_SIGNATURE)
+    if(NOT signature STREQUAL previous)
+        get_cmake_property(keys CACHE_VARIABLES)
+        foreach(key IN LISTS keys)
+            if(key MATCHES "^_LORICA_PROBE_")
+                unset(${key} CACHE)
+            endif()
+        endforeach()
+        set_property(GLOBAL PROPERTY _LORICA_PROBE_SIGNATURE "${signature}")
+    endif()
+endfunction()
+
+function(_lorica_warn_once key detail)
+    get_property(reported GLOBAL PROPERTY "_LORICA_WARNED_${key}")
+    if(NOT reported)
+        message(WARNING "Lorica baseline: ${detail}")
+        set_property(GLOBAL PROPERTY "_LORICA_WARNED_${key}" TRUE)
+    endif()
+endfunction()
+
+# Probe libc's effective level using this configuration's actual optimization.
+function(_lorica_fortify_level lang config preferred out)
+    # A custom multi-config list may include MinSizeRel, which Ninja's default
+    # inner try_compile project would otherwise omit.
+    list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_TRY_COMPILE_CONFIGURATION "${config}")
+    string(TOUPPER "${config}" upper)
+    set(levels "${preferred}" 2)
+    list(REMOVE_DUPLICATES levels)
+    foreach(level IN LISTS levels)
+        set(probe "_LORICA_PROBE_${lang}_${upper}_FORTIFY_${level}")
+        # Lorica's -U/-D pair follows the toolchain's config-specific -D flags.
+        check_source_compiles(${lang} "
+            #undef _FORTIFY_SOURCE
+            #define _FORTIFY_SOURCE ${level}
+            #include <string.h>
+            #if !defined(__USE_FORTIFY_LEVEL) || __USE_FORTIFY_LEVEL != ${level}
+            #error requested libc fortification is inactive
+            #endif
+            int main(void) { return 0; }" ${probe})
+        if(${probe})
+            set(${out} "${level}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+    set(${out} 0 PARENT_SCOPE)
+endfunction()
+
+# A consumer may select another standard library in only one configuration.
+function(_lorica_check_extended_stdlib config out)
+    cmake_push_check_state(RESET)
+    list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_TRY_COMPILE_CONFIGURATION "${config}")
+    string(MAKE_C_IDENTIFIER "${config}_STDLIB" key)
+    set(probe "_LORICA_PROBE_EXTENSIVE_${key}")
+    check_source_compiles(CXX [=[
+        #undef _GLIBCXX_ASSERTIONS
+        #define _GLIBCXX_ASSERTIONS 1
+        #undef _LIBCPP_HARDENING_MODE
+        #define _LIBCPP_HARDENING_MODE _LIBCPP_HARDENING_MODE_EXTENSIVE
+        #include <cstddef>
+        static_assert(sizeof(void*) == 8, "EXTENDED needs a 64-bit ABI");
+        #if defined(_LIBCPP_VERSION)
+        #if !defined(_LIBCPP_HARDENING_MODE_EXTENSIVE) || _LIBCPP_HARDENING_MODE != _LIBCPP_HARDENING_MODE_EXTENSIVE
+        #error libc++ lacks extensive hardening
+        #endif
+        #elif !defined(__GLIBCXX__) || !defined(__glibcxx_assert)
+        #error unsupported standard library
+        #endif
+        int main() { return 0; }
+    ]=] ${probe})
+    cmake_pop_check_state()
+    set(${out} "${${probe}}" PARENT_SCOPE)
+endfunction()
+
+# With a target, emit baseline options. Without one, check the same capabilities
+# for EXTENDED and return the first missing requirement. Use each enabled driver:
+# a downstream C library need not use the same compiler as its C++ consumer.
+function(_lorica_linux_capabilities target out)
+    _lorica_prepare_checks()
+    cmake_push_check_state(RESET)
+    set(${out} "" PARENT_SCOPE)
+    set(flags -fstack-clash-protection)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+        list(APPEND flags -mbranch-protection=standard)
+    else()
+        list(APPEND flags -fcf-protection=full)
+    endif()
+    if("${target}" STREQUAL "")
+        list(APPEND flags -fstack-protector-strong -ftrivial-auto-var-init=zero)
+    endif()
+    get_property(multi GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    if(multi)
+        set(configs ${CMAKE_CONFIGURATION_TYPES})
+    else()
+        set(configs ${CMAKE_BUILD_TYPE})
+    endif()
+
+    foreach(lang C CXX)
+        if(NOT CMAKE_${lang}_COMPILER_LOADED)
+            continue()
+        endif()
+        foreach(flag IN LISTS flags)
+            string(MAKE_C_IDENTIFIER "${flag}" key)
+            set(probe "_LORICA_PROBE_${lang}_${key}")
+            check_compiler_flag(${lang} "${flag}" ${probe})
+            if(${probe})
+                if(NOT "${target}" STREQUAL "")
+                    target_compile_options("${target}" PRIVATE "$<$<COMPILE_LANGUAGE:${lang}>:${flag}>")
+                endif()
+            elseif(NOT "${target}" STREQUAL "")
+                _lorica_warn_once("${probe}" "${lang} does not support ${flag}, omitting it")
+            else()
+                set(${out} "EXTENDED requires ${flag} for ${lang}" PARENT_SCOPE)
+                return()
+            endif()
+        endforeach()
+
+        foreach(config IN LISTS configs)
+            string(TOUPPER "${config}" upper)
+            if(NOT upper MATCHES "^(RELEASE|RELWITHDEBINFO|MINSIZEREL)$")
+                continue()
+            endif()
+            set(preferred 2)
+            if(CMAKE_${lang}_COMPILER_VERSION VERSION_GREATER_EQUAL 12)
+                set(preferred 3)
+            endif()
+            _lorica_fortify_level("${lang}" "${config}" "${preferred}" selected)
+            if(NOT "${target}" STREQUAL "")
+                if(selected)
+                    target_compile_options("${target}" PRIVATE
+                        "$<$<AND:$<COMPILE_LANGUAGE:${lang}>,$<CONFIG:${config}>>:SHELL:-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=${selected}>")
+                endif()
+                if(NOT selected STREQUAL preferred)
+                    _lorica_warn_once("${lang}_${upper}_FORTIFY"
+                        "${lang} ${config} cannot enable FORTIFY ${preferred} (selected level ${selected})")
+                endif()
+            elseif(NOT selected STREQUAL "3")
+                set(${out} "EXTENDED requires effective _FORTIFY_SOURCE=3 for ${lang} ${config}" PARENT_SCOPE)
+                return()
+            endif()
+        endforeach()
+    endforeach()
+    cmake_pop_check_state()
+endfunction()
+
 # Baseline profile (LR-BUILD-01): stack protection, ASLR/PIE, NX and full RELRO
 # or Control Flow Guard.
 function(_lorica_apply_baseline target kind)
@@ -54,6 +219,13 @@ function(_lorica_apply_baseline target kind)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
         target_compile_options("${target}" PRIVATE
             "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-protector-strong>")
+        _lorica_linux_capabilities("${target}" unused_reason)
+        # Read the final profile at generation time, including a later upgrade.
+        set(extended "$<STREQUAL:$<TARGET_PROPERTY:LORICA_HARDENING_PROFILE>,extended>")
+        set(mode "$<IF:${extended},_LIBCPP_HARDENING_MODE_EXTENSIVE,_LIBCPP_HARDENING_MODE_FAST>")
+        target_compile_definitions("${target}" PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:_GLIBCXX_ASSERTIONS>")
+        target_compile_options("${target}" PRIVATE
+            "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-U_LIBCPP_HARDENING_MODE -D_LIBCPP_HARDENING_MODE=${mode}>")
         set_property(TARGET "${target}" PROPERTY POSITION_INDEPENDENT_CODE TRUE)
         if(kind MATCHES "^(EXECUTABLE|SHARED_LIBRARY|MODULE_LIBRARY)$")
             target_link_options("${target}" PRIVATE -Wl,-z,relro,-z,now,-z,noexecstack)
@@ -72,12 +244,30 @@ endfunction()
 # AArch64, the first to take every option and, for Clang's libc++, the
 # _LIBCPP_HARDENING_MODE macro.
 function(_lorica_extended_unsupported out)
+    _lorica_prepare_checks()
     set(reason "")
     if(MSVC AND WIN32)
-        if(MSVC_VERSION LESS 1944)
+        if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" OR MSVC_VERSION LESS 1944)
             set(reason "EXTENDED needs MSVC 19.44 (Visual Studio 2022 17.14) or newer for STL hardening")
         elseif(NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
             set(reason "EXTENDED supports MSVC x64 only (CET shadow stack compatibility)")
+        else()
+            cmake_push_check_state(RESET)
+            check_source_compiles(CXX [=[
+                #undef _MSVC_STL_HARDENING
+                #undef _MSVC_STL_DESTRUCTOR_TOMBSTONES
+                #include <vector>
+                #if !defined(_MSVC_STL_HARDENING) || !defined(_MSVC_STL_DESTRUCTOR_TOMBSTONES)
+                #error STL does not recognize both hardening switches
+                #endif
+                int main() { return 0; }
+            ]=] _LORICA_PROBE_MSVC_STL)
+            set(CMAKE_TRY_COMPILE_TARGET_TYPE EXECUTABLE)
+            check_linker_flag(CXX "/CETCOMPAT" _LORICA_PROBE_MSVC_CET)
+            cmake_pop_check_state()
+            if(NOT _LORICA_PROBE_MSVC_STL OR NOT _LORICA_PROBE_MSVC_CET)
+                set(reason "EXTENDED requires STL hardening, destructor tombstones and /CETCOMPAT")
+            endif()
         endif()
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
         if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12) OR
@@ -85,6 +275,32 @@ function(_lorica_extended_unsupported out)
             set(reason "EXTENDED needs GCC 12 or Clang 18 or newer")
         elseif(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|aarch64|arm64|ARM64)$")
             set(reason "EXTENDED supports x86-64 and AArch64 only, not ${CMAKE_SYSTEM_PROCESSOR}")
+        elseif(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+            set(reason "EXTENDED requires a 64-bit Linux target ABI")
+        else()
+            _lorica_linux_capabilities("" reason)
+            if(NOT reason)
+                get_property(multi GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+                if(multi)
+                    set(configs ${CMAKE_CONFIGURATION_TYPES})
+                else()
+                    set(configs "${CMAKE_BUILD_TYPE}")
+                endif()
+                # An empty single-config build type also needs a header check.
+                if(NOT configs)
+                    _lorica_check_extended_stdlib("" usable)
+                else()
+                    foreach(config IN LISTS configs)
+                        _lorica_check_extended_stdlib("${config}" usable)
+                        if(NOT usable)
+                            break()
+                        endif()
+                    endforeach()
+                endif()
+                if(NOT usable)
+                    set(reason "EXTENDED requires libstdc++ assertions or libc++ EXTENSIVE hardening")
+                endif()
+            endif()
         endif()
     else()
         set(reason "unsupported hardening toolchain/platform")
@@ -113,10 +329,6 @@ endfunction()
 # control-flow protection (x86-64 CET, AArch64 PAC/BTI). A toolchain or processor
 # that cannot provide all of it fails configuration instead of getting less.
 function(_lorica_apply_extended target kind)
-    _lorica_extended_unsupported(reason)
-    if(reason)
-        message(FATAL_ERROR "Lorica: ${reason}; no silent fallback")
-    endif()
     if(MSVC AND WIN32)
         target_compile_definitions("${target}" PRIVATE
             "$<$<COMPILE_LANGUAGE:CXX>:_MSVC_STL_HARDENING=1>"
@@ -125,22 +337,8 @@ function(_lorica_apply_extended target kind)
             target_link_options("${target}" PRIVATE /CETCOMPAT)
         endif()
     else()
-        if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
-            set(control_flow -fcf-protection=full)
-        else()
-            set(control_flow -mbranch-protection=standard)
-        endif()
-        set(optimized "$<CONFIG:Release,RelWithDebInfo,MinSizeRel>")
-        target_compile_definitions("${target}" PRIVATE
-            "$<$<COMPILE_LANGUAGE:CXX>:_GLIBCXX_ASSERTIONS>"
-            "$<$<COMPILE_LANGUAGE:CXX>:_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE>")
         target_compile_options("${target}" PRIVATE
-            "$<$<COMPILE_LANGUAGE:C,CXX>:-ftrivial-auto-var-init=zero>"
-            "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-clash-protection>"
-            "$<$<COMPILE_LANGUAGE:C,CXX>:${control_flow}>"
-            # glibc checks only optimized code, and warns without optimization.
-            "$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,${optimized}>:-U_FORTIFY_SOURCE>"
-            "$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,${optimized}>:-D_FORTIFY_SOURCE=3>")
+            "$<$<COMPILE_LANGUAGE:C,CXX>:-ftrivial-auto-var-init=zero>")
     endif()
 endfunction()
 
@@ -156,12 +354,18 @@ function(lorica_harden_target target)
     _lorica_require_compiled_target("${target}")
     get_target_property(kind "${target}" TYPE)
     get_target_property(applied "${target}" LORICA_HARDENED)
+    get_target_property(profile "${target}" LORICA_HARDENING_PROFILE)
+    if(arg_EXTENDED AND NOT profile STREQUAL "extended")
+        _lorica_extended_unsupported(reason)
+        if(reason)
+            message(FATAL_ERROR "Lorica: ${reason}; no silent fallback")
+        endif()
+    endif()
     if(NOT applied)
         _lorica_apply_baseline("${target}" "${kind}")
         set_property(TARGET "${target}" PROPERTY LORICA_HARDENED TRUE)
         set_property(TARGET "${target}" PROPERTY LORICA_HARDENING_PROFILE baseline)
     endif()
-    get_target_property(profile "${target}" LORICA_HARDENING_PROFILE)
     if(arg_EXTENDED AND NOT profile STREQUAL "extended")
         _lorica_apply_extended("${target}" "${kind}")
         set_property(TARGET "${target}" PROPERTY LORICA_HARDENING_PROFILE extended)
@@ -174,6 +378,7 @@ endfunction()
 # glibc's fortified overloads (pass_object_size), which no earlier declaration
 # reaches, so a fortified build would accept the calls.
 function(_lorica_unsafe_api_unsupported out)
+    _lorica_prepare_checks()
     set(reason "")
     if(MSVC AND WIN32)
         if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
@@ -187,14 +392,16 @@ function(_lorica_unsafe_api_unsupported out)
 #if defined(__has_include)
 #if __has_include(<gnu/libc-version.h>)
 #include <features.h>
-#if defined(__fortify_use_clang) && __fortify_use_clang
+#if defined(__clang__) && __GLIBC_PREREQ(2, 40)
+#error "fortified target builds use separate overloads even when this probe is unfortified"
+#elif defined(__fortify_use_clang) && __fortify_use_clang
 #error "glibc gives Clang separate fortified overloads"
 #endif
 #endif
 #endif
 int main() { return 0; }
-]=] LORICA_UNSAFE_API_NO_CLANG_FORTIFY_OVERLOADS)
-        if(NOT LORICA_UNSAFE_API_NO_CLANG_FORTIFY_OVERLOADS)
+]=] _LORICA_PROBE_NO_CLANG_FORTIFY_OVERLOADS)
+        if(NOT _LORICA_PROBE_NO_CLANG_FORTIFY_OVERLOADS)
             set(reason "unsafe API rejection does not support Clang with glibc 2.40 or newer, whose fortified overloads it cannot reach; use GCC for this check")
         endif()
     else()

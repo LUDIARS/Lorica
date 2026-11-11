@@ -13,7 +13,8 @@ import sys
 
 # libstdc++ assertions and glibc's fortify checks abort; libc++ hardening traps.
 # The MSVC STL fails fast with STATUS_STACK_BUFFER_OVERRUN.
-POSIX_STOPS = {-signal.SIGABRT, -signal.SIGILL, -signal.SIGTRAP}
+if os.name != "nt":
+    POSIX_STOPS = {-signal.SIGABRT, -signal.SIGILL, -signal.SIGTRAP}
 WINDOWS_STOP = 0xC0000409
 
 

@@ -31,55 +31,47 @@ ABI/handle registry is promised in v0.1.
 | LR-READ-01 | `byte_reader` reads only within its span; a failed read consumes nothing |
 | LR-BUILD-01 | Unknown targets/platforms fail; imported/alias/noncompiled targets are rejected |
 | LR-BUILD-02 | External injection requires nonempty target allowlist; an unknown profile fails |
-| LR-BUILD-03 | EXTENDED adds standard library hardening, FORTIFY, zero-initialized locals, stack clash and control-flow protection, or fails configuration |
+| LR-BUILD-03 | EXTENDED requires every platform-specific protection in the profile table below, or fails configuration |
 | LR-BUILD-04 | `lorica_deprecate_unsafe_apis` turns uses of the unbounded C copy/format functions in a target's C++ sources into compile errors, within the limits of SPEC-LR-UNSAFE-API, or refuses the target |
 | LR-ARTIFACT-01 | Verifier rejects missing selected metadata; never claims full coverage |
 
-Windows flags: /GS /sdl /guard:cf at compile; /guard:cf /DYNAMICBASE /NXCOMPAT
-at executable/shared linking, plus /HIGHENTROPYVA on 64-bit.
-Linux flags: -fstack-protector-strong, position-independent code; -pie for executables;
-RELRO, NOW, noexecstack for executable/shared linking. The baseline profile claims
-no CFI, CET, FORTIFY or standard library hardening; the extended profile below adds
-them where the toolchain is qualified. Compiler/linker rejection fails the build.
+## Build profiles {#SPEC-LR-EXTENDED}
 
-Binary metadata does not prove stack checks, CFG call-site coverage, or all
-prebuilt modules were compiled with protection. PE checking currently checks flags
-only, not Guard CF tables; ELF checks PIE, NX-stack and full RELRO markers.
+`lorica_harden_target(app)` selects baseline. Passing `EXTENDED` selects the
+strict profile or upgrades an existing baseline. Repeated calls retain the
+strongest requested profile. Both the direct API and top-level injection use
+the same target property to select a single libc++ mode at generation time.
 
-## Extended build profile {#SPEC-LR-EXTENDED}
+| Protection | Linux baseline (GCC or Clang) | Linux EXTENDED |
+| --- | --- | --- |
+| Stack and linking | `-fstack-protector-strong`, PIC, PIE for executables, full RELRO and NX stack for executable/shared/module links | Same flags |
+| C++ library | `_GLIBCXX_ASSERTIONS` for libstdc++, FAST for supporting libc++. Older libc++ may ignore the mode. | Require libstdc++ assertions or libc++ EXTENSIVE in the configured headers |
+| C library | For Release, RelWithDebInfo and MinSizeRel, request level 3 with GCC/Clang 12+, otherwise level 2. Probe each enabled C/C++ driver and configuration. Fall back to effective level 2 or omit the option with a configure warning. | Require effective level 3 in every configured optimized build type |
+| Stack clash and control flow | Probe `-fstack-clash-protection`, x86 CET (`-fcf-protection=full`) or AArch64 PAC/BTI (`-mbranch-protection=standard`). Warn once per unsupported driver/option. | Require both protections on x86-64 or AArch64, GCC 12+ or Clang 18+ and a 64-bit ABI |
+| Automatic variables | Toolchain default | Require `-ftrivial-auto-var-init=zero` |
 
-`lorica_harden_target(<target> EXTENDED)` applies the baseline and then:
+FORTIFY qualification uses the effective `__USE_FORTIFY_LEVEL` from libc headers.
+Debug, empty and custom configuration names receive no Lorica FORTIFY override.
+Where Lorica selects a level or libc++ mode, its ordered undefine/define pair
+replaces earlier definitions. C sources receive only the applicable C options.
+Use consistent library settings across translation units that share inline code.
+The probes describe the configured toolchain. Target-specific sysroots, later
+flags and prebuilt dependencies require inspection of the final build commands.
 
-| Toolchain | Added |
-| --- | --- |
-| Linux GCC 12+/Clang 18+, x86-64 or AArch64 | `_GLIBCXX_ASSERTIONS` (libstdc++), `_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE` (libc++), `-ftrivial-auto-var-init=zero`, `-fstack-clash-protection`, `-fcf-protection=full` (x86-64) or `-mbranch-protection=standard` (AArch64); `-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3` in Release, RelWithDebInfo and MinSizeRel |
-| MSVC 19.44+ (Visual Studio 2022 17.14), x64 | `_MSVC_STL_HARDENING=1`, `_MSVC_STL_DESTRUCTOR_TOMBSTONES=1`; `/CETCOMPAT` when linking executables and shared libraries |
+On Windows, baseline uses `/GS /sdl /guard:cf` for compilation,
+`/guard:cf /DYNAMICBASE /NXCOMPAT` for executable/shared/module links and
+`/HIGHENTROPYVA` on 64-bit. EXTENDED requires native MSVC 19.44+ x64, an STL
+that recognizes both `_MSVC_STL_HARDENING` and `_MSVC_STL_DESTRUCTOR_TOMBSTONES`,
+and a linker accepting `/CETCOMPAT`. It enables both C++ switches and adds
+`/CETCOMPAT` to those links. Clang-cl can still use the Windows baseline.
 
-The hardened standard library turns precondition violations that otherwise corrupt
-memory (an out-of-range `operator[]`, `front()`/`back()` of an empty container, the
-value of an empty `std::optional`, out-of-range `std::span` and `string_view`
-access) into a program stop, as C++26 standard library hardening specifies; these
-modes are ABI-compatible with unhardened code. FORTIFY makes glibc check copies
-into objects of known size at run time; glibc checks only optimized code, so other
-configurations (including Debug and a custom configuration name) do not get it.
-Zero-initialized automatic variables are the compiler-flag counterpart of C++26's
-erroneous behaviour for uninitialized reads; they do not make such reads correct.
-Any other toolchain, an older version or another processor fails configuration;
-`lorica_extended_hardening_supported(<var>)` tells a caller in advance (the test
-suite uses it to report its extended checks as not run). The C and C++ libraries
-are not probed: FORTIFY level 3 needs glibc 2.34 or newer (older glibc treats it as
-level 2; musl has no FORTIFY), and `_LIBCPP_HARDENING_MODE` needs libc++ 18 or
-newer; an older library gets less without a diagnostic. In optimized
-configurations a target's own `_FORTIFY_SOURCE` is replaced by level 3 without a
-diagnostic; a different `_LIBCPP_HARDENING_MODE` of the target gives a macro
-redefinition warning.
-
-Limits: a stop is a deliberate termination, not recoverable input validation; it
-does not cover raw pointers, C arrays or third-party code built without these
-options, and libc++'s or MSVC's hardening covers only what that library checks.
-Overhead is not measured here. `verify_binary.py` does not inspect these options.
-Calling the function again with EXTENDED upgrades a baseline target; it never
-removes options.
+`lorica_extended_hardening_supported(result)` uses the same qualification as
+an explicit EXTENDED request and returns an explanation in `result_REASON`.
+A failed explicit request stops configuration. Library checks cover vendor-defined
+preconditions and terminate on violation. Clang CFI, runtime hardware enforcement
+and hardening of prebuilt code are outside these profiles. The binary verifier
+checks PIE, NX-stack and full RELRO on ELF, and selected flags on PE. Instruction
+coverage, CFG tables and performance require separate verification.
 
 ## Unsafe C API rejection {#SPEC-LR-UNSAFE-API}
 
@@ -150,9 +142,7 @@ without claiming analysis coverage.
 
 1. Privilege-separated workers for hostile parsing; secrets outside those workers.
 2. Request deadlines, bounded concurrency, rate limits and restart backoff.
-3. ASan/UBSan + fuzz in validation. Standard library hardening is available as the
-   EXTENDED profile; libc++ and MSVC STL behaviour still needs execution on those
-   toolchains (see the 2026-11-10 evidence).
+3. ASan/UBSan + fuzz in validation. Qualify standard-library hardening on each shipped toolchain.
 4. Evaluate maintained hardened allocators separately. Do not create a new allocator.
 5. Prefer memory-safe implementations for new high-risk parsers where practical;
    audit every native boundary and unsafe block separately.

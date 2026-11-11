@@ -10,7 +10,7 @@ Components (C++17 unless noted, CMake 3.24+):
 | `Lorica::boundary` | Checked size arithmetic, bounded byte views, cumulative request budgets |
 | `Lorica::boundary` (C++20 headers) | Checked integers of any type, bounded string copy/append/format, endian-safe byte reading ([checked APIs](spec/feature/checked-apis.md)) |
 | `Lorica::protection` | Dedicated OS read-only storage for immutable arithmetic/enum values |
-| `lorica_harden_target` | Target-local compiler/linker mitigations; `EXTENDED` adds standard library hardening, FORTIFY, zero-initialized locals, stack clash and CET/BTI; unsupported platforms fail configuration |
+| `lorica_harden_target` | Target-local baseline hardening, with an optional strict `EXTENDED` profile and a configure-time capability query |
 | `lorica_deprecate_unsafe_apis` | Uses of `strcpy`/`strcat`/`sprintf`/`vsprintf`/`wcscpy`/`wcscat` in a target's C++ sources fail to compile; every deprecation becomes an error; [limits](spec/feature/security-contracts.md#SPEC-LR-UNSAFE-API) |
 | `LoricaInject.cmake` | External CMake injection for an explicit target allowlist |
 | `tools/verify_binary.py` | Selected PE/ELF executable metadata checks; does not execute the binary |
@@ -73,14 +73,18 @@ char label[32];
 if (!name || !total || !lorica::format_into(label, "{} records", *count)) return reject_request();
 ```
 
-`lorica_harden_target(my_service EXTENDED)` and `lorica_deprecate_unsafe_apis(my_service)`
-add the hardened standard library (C++26 standard library hardening, available today
-as vendor modes) and reject the unbounded C APIs at compile time. See the
-[extended profile](spec/feature/security-contracts.md#SPEC-LR-EXTENDED) for the exact
-options, toolchain minimums (GCC 12, Clang 18, MSVC 19.44 x64) and limits, and the
-[unsafe API rejection](spec/feature/security-contracts.md#SPEC-LR-UNSAFE-API) for the
-toolchains and targets it refuses and what it does not see (compiler builtins,
-system headers). `format_into` needs a library with `__cpp_lib_format`.
+On Linux, baseline requests libstdc++ assertions or libc++ FAST, FORTIFY in
+optimized configurations, and supported stack-clash and control-flow flags.
+`lorica_harden_target(my_service EXTENDED)` upgrades that target to libc++
+EXTENSIVE or libstdc++ assertions and requires the Linux profile's stack and
+branch protections, zero initialization and effective FORTIFY level 3 in
+optimized configurations. On Windows it requires native MSVC 19.44+ x64 with
+STL hardening and CET-compatible linking. See the
+[profile table](spec/feature/security-contracts.md#SPEC-LR-EXTENDED).
+
+`lorica_deprecate_unsafe_apis(my_service)` separately enables
+[unsafe API rejection](spec/feature/security-contracts.md#SPEC-LR-UNSAFE-API).
+`format_into` needs a library with `__cpp_lib_format`.
 
 ## Protection limits
 
