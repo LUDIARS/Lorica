@@ -1,6 +1,7 @@
 # Dependency and memory-safety review
 
-Runtime: C++17 standard library and Windows/Linux virtual-memory APIs. No third-party packages, vendored sources,
+Runtime: C++17 standard library (C++20 for the checked API headers) and
+Windows/Linux virtual-memory APIs. No third-party packages, vendored sources,
 transitive package dependencies, network downloads or install-time code execution.
 Build: CMake 3.24+ and a supported compiler/linker. Optional artifact inspection:
 Python 3 standard library, plus trusted binutils `readelf` for ELF. Optional fuzzing:
@@ -36,6 +37,15 @@ of silently leaking. Concurrent loads only read immutable bytes; concurrent owne
 destruction remains forbidden. Returned copies and owner metadata are unprotected.
 No encryption, authentication, secure erase or general allocator is invented.
 Tests use Python standard-library subprocess without a shell; no installer or
-transitive package dependencies were introduced. Python is needed only when
-building protection tests. Runtime tests and Linux validation remain separately
+transitive package dependencies were introduced. Python is needed when building
+the tests (the protection and extended-profile stop checks).
+
+Checked API and build profile audit (2026-11-10): the checked APIs are header-only,
+allocate nothing, keep no state and check every bound before writing or reading;
+integer checks run before each operation. The extended profile adds compiler,
+standard-library and C-library modes shipped with the toolchain (libstdc++/libc++/
+MSVC STL hardening, glibc FORTIFY), no package. `<lorica/unsafe_api.hpp>` declares six C
+library functions deprecated, `#undef`s object-like macros of those names and
+re-exports them in `namespace std` (needed for Clang); it reads glibc's
+`<features.h>`, changes no definition and affects compilation only. Runtime tests and Linux validation remain separately
 recorded; successful Windows compilation is not evidence of those checks.
