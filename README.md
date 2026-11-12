@@ -10,6 +10,7 @@ Components (C++17 unless noted, CMake 3.24+):
 | `Lorica::boundary` | Checked size arithmetic, bounded byte views, cumulative request budgets |
 | `Lorica::boundary` (C++20 headers) | Checked integers of any type, bounded string copy/append/format, endian-safe byte reading ([checked APIs](spec/feature/checked-apis.md)) |
 | `Lorica::protection` | Dedicated OS read-only storage for immutable arithmetic/enum values |
+| `Lorica::contracts` | C++26 contract emulation (`LORICA_PRE` / `LORICA_POST` / `LORICA_CONTRACT_ASSERT`), four evaluation semantics, replaceable violation handler |
 | `lorica_harden_target` | Target-local baseline hardening, with an optional strict `EXTENDED` profile and a configure-time capability query |
 | `lorica_deprecate_unsafe_apis` | Uses of `strcpy`/`strcat`/`sprintf`/`vsprintf`/`wcscpy`/`wcscat` in a target's C++ sources fail to compile; every deprecation becomes an error; [limits](spec/feature/security-contracts.md#SPEC-LR-UNSAFE-API) |
 | `LoricaInject.cmake` | External CMake injection for an explicit target allowlist |
@@ -103,6 +104,24 @@ or make a compromised process trustworthy. Later conflicting build flags can
 weaken protection: inspect actual commands and artifacts. No universal memory
 barrier, secure allocator, cryptography or authentication is implemented here.
 `std::atomic_thread_fence` (thread ordering) is unrelated to these protections.
+
+## Contracts (C++26 emulation)
+
+Deploy one contracts runtime DLL/shared object for the executable and all its plugins.
+Link each consumer to `Lorica::contracts` and include `<lorica/contracts.hpp>`:
+
+```cpp
+int element(std::span<const int> values, std::size_t index) {
+    LORICA_PRE(index < values.size());
+    return values[index];
+}
+constexpr int square(int v) { return LORICA_POST_RETURN(v * v, r, r >= 0); }
+```
+
+Choose the semantic per target: `target_compile_definitions(t PRIVATE
+LORICA_CONTRACT_EVALUATION_SEMANTIC=enforce)` (default; also `observe`, `ignore`,
+`quick_enforce`). Contracts catch bugs; they are not input validation, which must not
+disappear under `ignore`. See [the contracts spec](spec/feature/contracts.md).
 
 ## Write-protected variables
 
