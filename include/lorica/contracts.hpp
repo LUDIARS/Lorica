@@ -61,7 +61,7 @@ inline void contract_violated_during_constant_evaluation() noexcept { trap(); }
 
 template <evaluation_semantic Semantic, class Predicate>
 void evaluate_at_runtime(assertion_kind kind, Predicate& predicate, const char* comment,
-                         source_location location) {
+                         source_location location, violation_sink sink, const void* context) {
 #if LORICA_DETAIL_CONTRACT_EXCEPTIONS
     bool satisfied = false;
     std::exception_ptr thrown;
@@ -74,8 +74,8 @@ void evaluate_at_runtime(assertion_kind kind, Predicate& predicate, const char* 
         if constexpr (Semantic == evaluation_semantic::quick_enforce) {
             trap();
         } else {
-            handle_violation(kind, Semantic, detection_mode::evaluation_exception, comment,
-                             location, thrown);
+            handle_violation(sink, context, kind, Semantic, detection_mode::evaluation_exception,
+                             comment, location, thrown);
             return;
         }
     }
@@ -86,26 +86,30 @@ void evaluate_at_runtime(assertion_kind kind, Predicate& predicate, const char* 
     if constexpr (Semantic == evaluation_semantic::quick_enforce) {
         trap();
     } else {
-        handle_violation(kind, Semantic, detection_mode::predicate_false, comment, location,
-                         std::exception_ptr());
+        handle_violation(sink, context, kind, Semantic, detection_mode::predicate_false, comment,
+                         location, std::exception_ptr());
     }
 }
 
+// sink and context name an overlay's own delegate; null means the installed handler.
 template <evaluation_semantic Semantic, class Predicate>
 constexpr void check(assertion_kind kind, Predicate&& predicate, const char* comment,
-                     source_location location) {
+                     source_location location, violation_sink sink = nullptr,
+                     const void* context = nullptr) {
     if constexpr (Semantic == evaluation_semantic::ignore) {
         // The predicate stays well-formed (it was compiled) but is never evaluated.
         static_cast<void>(kind);
         static_cast<void>(predicate);
         static_cast<void>(comment);
         static_cast<void>(location);
+        static_cast<void>(sink);
+        static_cast<void>(context);
     } else {
         if (LORICA_DETAIL_IS_CONSTANT_EVALUATED()) {
             if (!predicate()) contract_violated_during_constant_evaluation();
             return;
         }
-        evaluate_at_runtime<Semantic>(kind, predicate, comment, location);
+        evaluate_at_runtime<Semantic>(kind, predicate, comment, location, sink, context);
     }
 }
 

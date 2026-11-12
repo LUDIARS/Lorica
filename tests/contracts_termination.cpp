@@ -1,6 +1,12 @@
 // Built twice: LORICA_CONTRACT_EVALUATION_SEMANTIC=enforce and =quick_enforce, and
 // once more with exceptions disabled. Each mode violates a contract in a child.
+// LORICA_TEST_OVERLAY builds the same program with the contract laid over the
+// unchanged function from outside; the outcomes must not differ.
+#ifdef LORICA_TEST_OVERLAY
+#include <lorica/contract_overlay.hpp>
+#else
 #include <lorica/contracts.hpp>
+#endif
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -13,11 +19,19 @@
 #endif
 
 namespace {
+#ifdef LORICA_TEST_OVERLAY
+// @implements SPEC-LR-VERIFY
+int checked_index(int index) { return index; }
+const auto call_checked_index = LORICA_CONTRACT(checked_index)
+    .pre([](int index) { return index >= 0; }, "index >= 0");
+#else
 // @implements SPEC-LR-VERIFY
 int checked_index(int index) {
     LORICA_PRE(index >= 0);
     return index;
 }
+const auto call_checked_index = &checked_index;
+#endif
 // @implements SPEC-LR-VERIFY
 void returning_handler(const lorica::contracts::contract_violation& violation) {
     std::fprintf(stderr, "custom handler: %s terminating=%d\n", violation.comment(),
@@ -41,7 +55,20 @@ int main(int argc, char** argv) {
     if (setrlimit(RLIMIT_CORE, &limit) != 0) return 4;
 #endif
     if (argc != 2) return 2;
-    if (std::strcmp(argv[1], "--satisfied") == 0) return checked_index(0);
+    if (std::strcmp(argv[1], "--satisfied") == 0) return call_checked_index(0);
+#ifdef LORICA_TEST_OVERLAY
+    if (std::strcmp(argv[1], "--delegate-returns") == 0) {
+        // An overlay's own delegate does not turn enforce into observe.
+        const auto delegated = call_checked_index.on_violation(
+            [](const lorica::contracts::contract_violation& violation) {
+                std::fprintf(stderr, "own delegate: %s terminating=%d\n", violation.comment(),
+                             violation.is_terminating() ? 1 : 0);
+                std::fflush(stderr);
+            });
+        static_cast<void>(delegated(-1));
+        return 5;
+    }
+#endif
     if (std::strcmp(argv[1], "--handler-returns") == 0) {
         lorica::contracts::set_violation_handler(&returning_handler);
     } else if (std::strcmp(argv[1], "--handler-violates") == 0) {
@@ -49,6 +76,6 @@ int main(int argc, char** argv) {
     } else if (std::strcmp(argv[1], "--default") != 0) {
         return 2;
     }
-    static_cast<void>(checked_index(-1));
+    static_cast<void>(call_checked_index(-1));
     return 5; // Reaching here means the contract did not terminate.
 }

@@ -26,12 +26,16 @@ def expect(condition: bool, message: str) -> None:
 
 def main() -> int:
     binary, semantic = sys.argv[1], sys.argv[2]
+    # The overlay build has one more way to report: a delegate of its own.
+    modes = ["--default", "--handler-returns", "--handler-violates"]
+    if sys.argv[3:] == ["overlay"]:
+        modes.append("--delegate-returns")
     satisfied = run(binary, "--satisfied")
     expect(satisfied.returncode == 0, f"satisfied contract exited {satisfied.returncode}")
 
     aborted = WINDOWS_ABORT if os.name == "nt" else -signal.SIGABRT
     trapped = {WINDOWS_FASTFAIL} if os.name == "nt" else {-signal.SIGILL, -signal.SIGTRAP}
-    for mode in ("--default", "--handler-returns", "--handler-violates"):
+    for mode in modes:
         result = run(binary, mode)
         if semantic == "enforce":
             expect(code(result) == aborted, f"{mode}: expected abort, got {code(result)}")
@@ -42,6 +46,9 @@ def main() -> int:
             if mode == "--handler-returns":
                 expect("custom handler: index >= 0 terminating=1" in result.stderr,
                        f"custom handler did not run: {result.stderr!r}")
+            if mode == "--delegate-returns":
+                expect("own delegate: index >= 0 terminating=1" in result.stderr,
+                       f"overlay delegate did not run: {result.stderr!r}")
             if mode == "--handler-violates":
                 expect("while handling a contract violation" in result.stderr and
                        "violating_handler: contract violation: contract_assert" in result.stderr,

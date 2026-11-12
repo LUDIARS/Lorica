@@ -112,18 +112,21 @@ if(LORICA_BUILD_TESTS)
 
     add_subdirectory(tests/contract_modules)
 
-    # Contracts: observe at each supported standard, ignore, then termination in children.
+    # Contracts: the in-body macros (observe) and the overlay, both under observe at
+    # each supported standard; ignore; then termination in children.
     foreach(standard IN ITEMS 17 20 23)
         if(standard IN_LIST CMAKE_CXX_COMPILE_FEATURES OR "cxx_std_${standard}" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
-            add_executable(lorica_contracts_observe_cxx${standard} tests/contracts_observe.cpp)
-            target_link_libraries(lorica_contracts_observe_cxx${standard} PRIVATE Lorica::contracts)
-            target_compile_definitions(lorica_contracts_observe_cxx${standard} PRIVATE
-                LORICA_CONTRACT_EVALUATION_SEMANTIC=observe)
-            set_target_properties(lorica_contracts_observe_cxx${standard} PROPERTIES
-                CXX_STANDARD ${standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
-            lorica_harden_target(lorica_contracts_observe_cxx${standard})
-            add_test(NAME lorica.contracts.observe.cxx${standard}
-                COMMAND lorica_contracts_observe_cxx${standard})
+            foreach(suite IN ITEMS observe overlay)
+                set(target lorica_contracts_${suite}_cxx${standard})
+                add_executable(${target} tests/contracts_${suite}.cpp)
+                target_link_libraries(${target} PRIVATE Lorica::contracts)
+                target_compile_definitions(${target} PRIVATE
+                    LORICA_CONTRACT_EVALUATION_SEMANTIC=observe)
+                set_target_properties(${target} PROPERTIES
+                    CXX_STANDARD ${standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+                lorica_harden_target(${target})
+                add_test(NAME lorica.contracts.${suite}.cxx${standard} COMMAND ${target})
+            endforeach()
         endif()
     endforeach()
     add_executable(lorica_contracts_ignore tests/contracts_ignore.cpp)
@@ -135,19 +138,25 @@ if(LORICA_BUILD_TESTS)
     if(NOT MSVC)
         list(APPEND lorica_contract_variants enforce_noexceptions)
     endif()
+    # Each variant as in-body macros and as an overlay: the outcomes must not differ.
     foreach(variant IN LISTS lorica_contract_variants)
         string(REPLACE "_noexceptions" "" semantic "${variant}")
-        add_executable(lorica_contracts_${variant} tests/contracts_termination.cpp)
-        target_link_libraries(lorica_contracts_${variant} PRIVATE Lorica::contracts)
-        target_compile_definitions(lorica_contracts_${variant} PRIVATE
-            LORICA_CONTRACT_EVALUATION_SEMANTIC=${semantic})
-        if(variant MATCHES "_noexceptions$")
-            target_compile_options(lorica_contracts_${variant} PRIVATE -fno-exceptions)
-        endif()
-        lorica_harden_target(lorica_contracts_${variant})
-        add_test(NAME lorica.contracts.${variant}
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/contract_termination.py
-                $<TARGET_FILE:lorica_contracts_${variant}> ${semantic})
+        foreach(form IN ITEMS "" overlay_)
+            set(target lorica_contracts_${form}${variant})
+            add_executable(${target} tests/contracts_termination.cpp)
+            target_link_libraries(${target} PRIVATE Lorica::contracts)
+            target_compile_definitions(${target} PRIVATE
+                LORICA_CONTRACT_EVALUATION_SEMANTIC=${semantic}
+                $<$<BOOL:${form}>:LORICA_TEST_OVERLAY>)
+            if(variant MATCHES "_noexceptions$")
+                target_compile_options(${target} PRIVATE -fno-exceptions)
+            endif()
+            lorica_harden_target(${target})
+            string(REPLACE "_" "" harness_form "${form}")
+            add_test(NAME lorica.contracts.${form}${variant}
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/contract_termination.py
+                    $<TARGET_FILE:${target}> ${semantic} ${harness_form})
+        endforeach()
     endforeach()
     if(LORICA_BUILD_PROTECTION)
         add_executable(lorica_protection_tests tests/protection.cpp)

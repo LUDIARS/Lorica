@@ -1,10 +1,10 @@
 {
   "name": "runtime-contracts",
-  "description": "Check preconditions, postconditions and assertions of correct programs with the C++26 contract semantics (ignore, observe, enforce, quick_enforce) and a replaceable violation handler. Not input validation.",
+  "description": "Check preconditions, postconditions and assertions of correct programs with the C++26 contract semantics (ignore, observe, enforce, quick_enforce) and a replaceable violation handler, written inside a function body or laid over an existing callable from outside; the overlay's conditions also serve as the callable's test oracle. Not input validation.",
   "presetRules": [],
   "templateRules": [],
   "membership": [
-    {"pathPattern": "(^|/)include/lorica/(contracts|contract_violation)\\.hpp$"},
+    {"pathPattern": "(^|/)include/lorica/(contracts|contract_violation|contract_overlay)\\.hpp$"},
     {"pathPattern": "(^|/)src/contract_violation\\.cpp$"}
   ],
   "specRefs": ["spec/feature/contracts.md"],

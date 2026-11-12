@@ -91,12 +91,18 @@ LORICA_CONTRACTS_API void invoke_default_contract_violation_handler(
 [[nodiscard]] LORICA_CONTRACTS_API const char* to_string(detection_mode mode) noexcept;
 
 namespace detail {
+// A delegate attached to one overlay (<lorica/contract_overlay.hpp>): context is
+// the delegate object, which the checking site keeps alive for the call.
+using violation_sink = void (*)(const void* context, const contract_violation& violation);
+
 // Called by the checking templates on a runtime violation of an observe/enforce
 // contract. Returns only for observe; enforce aborts after the handler returns.
 // A violation raised while a handler runs on the same thread aborts immediately.
+// A non-null sink is called in place of the installed handler.
 LORICA_CONTRACTS_API void handle_violation(
-    assertion_kind kind, evaluation_semantic semantic, detection_mode mode,
-    const char* comment, source_location location, std::exception_ptr evaluation_exception);
+    violation_sink sink, const void* context, assertion_kind kind,
+    evaluation_semantic semantic, detection_mode mode, const char* comment,
+    source_location location, std::exception_ptr evaluation_exception);
 } // namespace detail
 } // namespace lorica::contracts
 

@@ -84,9 +84,9 @@ void invoke_default_contract_violation_handler(const contract_violation& violati
 
 namespace detail {
 // @implements SPEC-LR-CONTRACTS
-void handle_violation(assertion_kind kind, evaluation_semantic semantic, detection_mode mode,
-                      const char* comment, source_location location,
-                      std::exception_ptr evaluation_exception) {
+void handle_violation(violation_sink sink, const void* context, assertion_kind kind,
+                      evaluation_semantic semantic, detection_mode mode, const char* comment,
+                      source_location location, std::exception_ptr evaluation_exception) {
     const contract_violation violation(kind, semantic, mode, comment, location,
                                        evaluation_exception);
     if (handling_violation) {
@@ -97,9 +97,11 @@ void handle_violation(assertion_kind kind, evaluation_semantic semantic, detecti
     }
     {
         const handler_scope scope;
-        const violation_handler handler = get_violation_handler();
-        if (handler != nullptr) {
-            handler(violation); // May throw; the scope resets the guard while unwinding.
+        // Either call may throw; the scope resets the guard while unwinding.
+        if (sink != nullptr) {
+            sink(context, violation);
+        } else if (const violation_handler handler = get_violation_handler()) {
+            handler(violation);
         } else {
             invoke_default_contract_violation_handler(violation);
         }

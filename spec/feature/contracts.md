@@ -63,6 +63,76 @@ Constant evaluation uses `std::is_constant_evaluated` (C++20) or the
 either, contracts are runtime-only and a constexpr function containing one cannot be
 constant-evaluated.
 
+## Overlay: a contract laid over an existing callable {#SPEC-LR-CONTRACT-OVERLAY}
+
+Human instruction (neco, 2026-11-12): contracts must be implementable by overlaying,
+as the referenced JavaScript `contract(func)` wrapper does (preconditions,
+postconditions that take the result first, a failure delegate), without changing
+behaviour, and must double as a test mechanism.
+
+`<lorica/contract_overlay.hpp>` (C++17, templates over the same runtime) attaches
+conditions to a callable from outside. The callable's body is not edited, so the
+contract can be added to code one does not own and taken off again:
+
+```cpp
+int divide(int dividend, int divisor);                       // unchanged
+const auto checked_divide = LORICA_CONTRACT(divide)
+    .pre([](int, int divisor) { return divisor != 0; }, "divisor is not zero")
+    .post([](int quotient, int dividend, int divisor) {
+        return quotient * divisor <= dividend; }, "quotient is rounded down");
+checked_divide(6, 3);          // divide(6, 3), with both conditions checked
+checked_divide.test(1, 0);     // {precondition_failed, "divisor is not zero"}; no call
+```
+
+`LORICA_CONTRACT(callable)` uses the translation unit's evaluation semantic;
+`LORICA_CONTRACT_WITH(semantic, callable)` names one. Functions, function objects,
+lambdas and pointers to members (object first, as `std::invoke`) are accepted and
+held by value. `pre`, `post` and `on_violation` each return a new overlay; an
+overlay is immutable, so concurrent calls are as safe as the callable and the
+predicates are.
+
+| ID | Guaranteed behaviour |
+| --- | --- |
+| LR-OVERLAY-01 | While its conditions hold, a call through the overlay has the callable's result type, value category, result and exceptions; arguments are forwarded unchanged and the callable runs once |
+| LR-OVERLAY-02 | Each condition is one contract assertion under the overlay's semantic (LR-CONTRACT-01 to 08 apply), reported with its kind, its message as comment, the callable as written, and the file and line where the overlay was started |
+| LR-OVERLAY-03 | `ignore`: no condition is evaluated and the call is the callable's own, including its `noexcept` and a result that cannot be moved; the unit references nothing in the runtime library. A condition that cannot take the call's arguments still fails to compile |
+| LR-OVERLAY-04 | A postcondition takes the result first (nothing for `void`) and then the arguments, and is checked on normal return only |
+| LR-OVERLAY-05 | `on_violation(delegate)` sends that overlay's violations to the delegate in place of the installed handler; `enforce` still terminates when it returns, `quick_enforce` calls neither |
+| LR-OVERLAY-06 | `test(arguments...)` evaluates the conditions under every semantic, `ignore` included, reports the first that does not hold (`satisfied`, `precondition_failed`, `postcondition_failed` and its message), calls no handler or delegate, and does not call the callable when a precondition fails |
+| LR-OVERLAY-07 | An overlay over a `constexpr` callable is usable in constant evaluation, as is `test`; a violated condition there is ill-formed |
+
+The test mechanism is LR-OVERLAY-06: conditions written once are the callable's
+oracle. A test feeds arguments to `test` and compares the outcome, also for calls
+the contract refuses, which the product could only observe by terminating. The
+same conditions can be laid over a second implementation of the same interface.
+`on_violation` is for tests that run the overlay in place inside a larger system.
+
+Deliberate differences from the JavaScript model:
+
+- No argument-rewriting fail-safe. A contract that repairs arguments changes
+  behaviour and cannot be stripped; repair or reject input at the boundary
+  (`Lorica::boundary`).
+- A violation never replaces the result with a null value: the semantic decides
+  (terminate, or report and continue), as for the in-body macros. `test` is the
+  form that reports without calling.
+- Setters return a new overlay instead of mutating, which makes chaining and
+  sharing between threads safe.
+- No invariants, as in the model and in P2900.
+
+Limits of the overlay:
+
+- It checks calls made through it. C++ cannot rebind a function's name, so a
+  direct call to the function is unchecked; hand out the overlay where the
+  contract must hold.
+- The callable must be callable as `const`; wrap a stateful object in `std::ref`.
+- Postconditions see the arguments as the call left them (moved from, or
+  written through a reference).
+- Under a checking semantic an overlay with postconditions keeps the result in a
+  local, so the result type must be movable or copyable. `ignore` has no such need.
+- A violation's location is where the overlay was started, not the line of the
+  single condition; the message identifies the condition.
+- A pointer to member is callable in constant evaluation from C++20 only.
+
 ## Limits (differences from native contracts)
 
 - Statement macros, not declaration syntax: preconditions are not visible to callers
@@ -89,6 +159,15 @@ The enumerators and accessor names are kept identical to make that mechanical.
 `tests/contracts_termination.cpp` run in children by `tests/contract_termination.py`
 for enforce, quick_enforce and enforce with `-fno-exceptions` (abort with diagnostic,
 custom returning handler still aborts, re-entry abort, trap with empty stderr).
+
+`tests/contracts_overlay.cpp` (C++17/20/23, observe) covers LR-OVERLAY-01, 02 and
+04 to 07; `tests/contracts_ignore.cpp` covers LR-OVERLAY-03 and 06 under `ignore`;
+`tests/contracts_termination.cpp` is built a second time with the contract as an
+overlay (`LORICA_TEST_OVERLAY`) and must end exactly as the in-body form does,
+plus a delegate that returns under `enforce`. `examples/contracts` is the demo:
+one contract over a correct and a defective implementation, run as a test table,
+built with `enforce` and with `ignore` (both runs must report every outcome as
+expected).
 
 `tests/contract_modules` also builds against an installed Lorica package. Two
 shared libraries independently set, read and reset the handler and raise observe
