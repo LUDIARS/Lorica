@@ -74,8 +74,10 @@ What the read-only protection does:
 
 What it does not stop:
 
-- The process itself: `mprotect`, `munmap` and `mmap(MAP_FIXED)` over the mapping, writes through `/proc/self/mem`, and another process writing with
-  `ptrace`. This is page protection, not Linux `mseal(2)`.
+- The process itself: `mprotect`, `munmap` and `mmap(MAP_FIXED)` over the mapping,
+  `madvise(MADV_DONTNEED)` over it, which replaces the bytes with zero without a
+  fault (`MADV_FREE` lets the kernel do the same later), writes through
+  `/proc/self/mem`, and another process writing with `ptrace`. This is page protection, not Linux `mseal(2)`.
 - Values before sealing: the builder's staging buffer is ordinary writable heap
   memory, freed (not erased) after sealing, as are the caller's source values.
 - Metadata: slots and the `sealed_pack` object itself (mapping address and sizes)
