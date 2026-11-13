@@ -105,8 +105,8 @@ earlier declaration reaches), a target with C sources and a target with
 precompiled headers (CMake compiles them as system headers, where deprecations
 are not reported), checked when the top-level directory is done, so sources and
 headers added later count. Precompiled headers inherited from linked targets are
-switched off for the target (`DISABLE_PRECOMPILE_HEADERS`). C units get the header
-too, so a C source the check cannot see (added through a generator expression or a
+switched off for the target (`DISABLE_PRECOMPILE_HEADERS`). With GCC and Clang, C
+units get the header too, so a C source the check cannot see (added through a generator expression or a
 linked target's sources) stops at its `#error`.
 `lorica_unsafe_api_rejection_supported(<var>)` tells a
 caller in advance. The header itself stops compilation when a C library header

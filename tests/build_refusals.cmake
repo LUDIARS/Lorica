@@ -7,6 +7,7 @@
 #   -DLORICA_CMAKE_DIR=<cmake dir> -DWORK_DIR=<scratch> -DGENERATOR=<generator>
 #   -DCXX_COMPILER=<compiler> -DGROUP=build|unsafe_api|harness_control
 #   [-DEXTENDED=<bool>] [-DUNSAFE=<bool>]   (adds the extended injection case)
+#   [-DMSVC_TOOLCHAIN=<bool>]               (leaves out the GCC/Clang-only cases)
 foreach(variable LORICA_CMAKE_DIR WORK_DIR GENERATOR CXX_COMPILER GROUP)
     if(NOT ${variable})
         message(FATAL_ERROR "build_refusals: ${variable} is required")
@@ -65,8 +66,11 @@ endif()
 
 # LR-BUILD-04: refused at configuration with a readable message, or, for C sources
 # the scan cannot see, stopped at build time by the header's #error.
-set(unsafe_api_cases control precompiled_header reuse_from c_source language_property
-    c_source_generator c_source_interface unsupported_toolchain mingw unknown_platform)
+set(unsafe_api_cases control precompiled_header reuse_from c_source language_property mingw
+    unknown_platform)
+if(NOT MSVC_TOOLCHAIN)
+    list(APPEND unsafe_api_cases c_source_generator c_source_interface unsupported_toolchain)
+endif()
 set(deprecate "lorica_deprecate_unsafe_apis(app)")
 set(unsafe_api_control_lines "${deprecate}")
 set(unsafe_api_precompiled_header_lines "${deprecate}\ntarget_precompile_headers(app PRIVATE <cstring>)")

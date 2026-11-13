@@ -78,7 +78,7 @@ if(LORICA_BUILD_TESTS)
     function(lorica_add_build_refusals name group)
         add_test(NAME "${name}" COMMAND "${CMAKE_COMMAND}" "-DLORICA_CMAKE_DIR=${PROJECT_SOURCE_DIR}/cmake"
             "-DWORK_DIR=${PROJECT_BINARY_DIR}/build_refusals" "-DGENERATOR=${CMAKE_GENERATOR}"
-            "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}" "-DGROUP=${group}" ${ARGN}
+            "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}" "-DGROUP=${group}" "-DMSVC_TOOLCHAIN=${MSVC}" ${ARGN}
             -P "${PROJECT_SOURCE_DIR}/tests/build_refusals.cmake")
     endfunction()
     add_executable(lorica_boundary_tests tests/boundary.cpp)
