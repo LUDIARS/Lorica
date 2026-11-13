@@ -123,9 +123,11 @@ result measure(Build build, Read read, const std::vector<std::uint32_t>& order) 
         if (repetition == 0 && resident_before && resident_after) outcome.resident_kib = *resident_after - *resident_before;
         outcome.checksums_match = outcome.checksums_match && sum == std::uint64_t{held} * (held - (held != 0)) / 2;
     }
-    const auto median = [](std::array<double, repetitions> values) {
+    // Names nothing from the enclosing scope: MSVC refuses a local constant used
+    // in a capture-less lambda of a function template (C3493).
+    const auto median = [](auto values) {
         std::sort(values.begin(), values.end());
-        return values[repetitions / 2];
+        return values[values.size() / 2];
     };
     outcome.build_ns = median(builds);
     outcome.read_ns = median(reads);
