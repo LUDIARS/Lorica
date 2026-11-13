@@ -233,6 +233,7 @@ SELF_EXPECTED = {
     "include/lorica/contracts.hpp": [
         "lorica::contracts::detail::trap",
         "lorica::contracts::detail::contract_violated_during_constant_evaluation",
+        "lorica::contracts::detail::holds",
         "lorica::contracts::detail::evaluate_at_runtime", "lorica::contracts::detail::check",
         "lorica::contracts::detail::check_result",
         "lorica::contracts::detail::post_guard::post_guard",
