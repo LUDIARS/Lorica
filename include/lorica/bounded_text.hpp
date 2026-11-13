@@ -30,7 +30,8 @@ concept text_character = std::same_as<T, char> || std::same_as<T, wchar_t> ||
 
 // A contiguous, sized buffer of writable characters that outlives the call: an
 // lvalue array or container, or a view such as std::span. A temporary container
-// would discard the result, so it is rejected at compile time.
+// would discard the result, so it is rejected at compile time. The size is the
+// capacity and is never changed: a std::string destination keeps its size.
 // @implements SPEC-LR-TEXT
 template<class R>
 concept writable_text = std::ranges::contiguous_range<R> && std::ranges::sized_range<R> &&
@@ -53,6 +54,9 @@ template<class C, class S>
         if (end == nullptr) return std::nullopt;
         return std::basic_string_view<C>(source, static_cast<std::size_t>(end - source));
     } else {
+        if constexpr (std::is_pointer_v<S>) {
+            if (source == nullptr) return std::nullopt;
+        }
         const std::basic_string_view<C> text{source};
         if (text.find(C{}) != text.npos) return std::nullopt;
         return text;
@@ -70,12 +74,14 @@ constexpr std::size_t put_text(std::span<C> out, std::size_t at, std::basic_stri
 } // namespace detail
 
 // What copy_string and append_string read from: an array of the destination's
-// character type, or anything else convertible to a string view of it.
+// character type, or anything else convertible to a string view of it. An array
+// of unknown bound has no extent to search, so it does not compile.
 // @implements SPEC-LR-TEXT
 template<class S, class C>
 concept text_source =
-    (std::is_array_v<S> && std::same_as<std::remove_cv_t<std::remove_extent_t<S>>, C>) ||
-    (!std::is_array_v<S> && std::convertible_to<const S&, std::basic_string_view<C>>);
+    (std::is_bounded_array_v<S> && std::same_as<std::remove_cv_t<std::remove_extent_t<S>>, C>) ||
+    (!std::is_array_v<S> && !std::is_null_pointer_v<S> &&
+     std::convertible_to<const S&, std::basic_string_view<C>>);
 
 // Replacement for strcpy/wcscpy/strncpy: copies source and a terminator into
 // destination and returns the length copied. A source that does not fit, a
@@ -83,6 +89,9 @@ concept text_source =
 // string) and a character array without one leave destination holding an empty
 // string and return empty: a cut-off value is never presented as complete. An
 // empty destination is left untouched. Source may be a view into destination.
+// A null pointer source is rejected. Only the C string is defined: bytes after the
+// terminator keep their earlier content (unlike strncpy, nothing is zero-padded),
+// so clear a field yourself before writing it out whole.
 // @implements SPEC-LR-TEXT
 template<writable_text D, class S>
     requires text_source<S, text_character_t<D>>
@@ -109,7 +118,7 @@ template<writable_text D, class S>
     std::span<C> out{destination};
     if (out.empty()) return std::nullopt;
     const auto used = static_cast<std::size_t>(std::ranges::find(out, C{}) - out.begin());
-    const auto in = used == out.size() ? std::nullopt : detail::source_text<C>(source);
+    const auto in = detail::source_text<C>(source);
     if (!in || in->size() >= out.size() - used) {
         out.front() = C{};
         return std::nullopt;
@@ -122,11 +131,13 @@ template<writable_text D, class S>
 // (__cpp_lib_format: libstdc++ 13, libc++ 19, MSVC STL). The format string is
 // checked at compile time, so no runtime value becomes a format string unless the
 // caller opts in with std::runtime_format, and output never exceeds destination.
-// Output that does not fit leaves an empty string and returns empty. A formatter
-// may still throw (std::format_error for a negative dynamic width, std::bad_alloc
-// where the library formats through a heap buffer, or a user formatter's
-// exception); destination then holds an empty string, and nothing was written
-// past it.
+// Output that does not fit or holds a terminator (a shortened C string) leaves an
+// empty string and returns empty. Format arguments must not refer to the
+// destination (as for snprintf); only copy_string and append_string accept a
+// source inside the destination. A formatter may still throw (std::format_error
+// for a negative dynamic width, std::bad_alloc where the library formats through a
+// heap buffer, or a user formatter's exception); destination then holds an empty
+// string, and nothing was written past it.
 // @implements SPEC-LR-TEXT
 template<writable_text D, class... Args>
     requires std::same_as<text_character_t<D>, char>
@@ -135,7 +146,6 @@ template<writable_text D, class... Args>
     std::span<char> out{destination};
     if (out.empty()) return std::nullopt;
     const std::size_t limit = out.size() - 1;
-    out.front() = '\0';
 #if defined(__cpp_exceptions) || defined(_CPPUNWIND)
     std::format_to_n_result<std::span<char>::iterator> result;
     try {
@@ -154,6 +164,10 @@ template<writable_text D, class... Args>
         return std::nullopt;
     }
     const auto written = static_cast<std::size_t>(result.size);
+    if (std::char_traits<char>::find(out.data(), written, '\0') != nullptr) {
+        out.front() = '\0';
+        return std::nullopt;
+    }
     out[written] = '\0';
     return written;
 }

@@ -28,8 +28,8 @@ Memory audit:
 Artifact inspection is for trusted local build outputs, not an internet-facing
 parser. It invokes a trusted readelf without a shell and limits PE file allocation.
 
-Write-protection audit: scalar size comes from sizeof, with no user-controlled
-rounding arithmetic. OS calls allocate complete pages independently of the heap.
+Write-protection audit: scalar and pack sizes come from sizeof and checked
+arithmetic, with no user-controlled rounding arithmetic. OS calls allocate complete pages independently of the heap.
 Source bytes are copied synchronously before sealing; no writable pointer escapes
 the scalar API. Failed sealing releases its mapping before throwing. Successful
 owners release once; copy and move are disabled. Cleanup failure terminates instead
@@ -39,6 +39,16 @@ No encryption, authentication, secure erase or general allocator is invented.
 Tests use Python standard-library subprocess without a shell; no installer or
 transitive package dependencies were introduced. Python is needed when building
 the tests (the protection and extended-profile stop checks).
+
+Sealed pack audit (2026-11-12): header-only on the existing protection target, no
+new OS code. The builder stages values in a zeroed `new[]` buffer of the caller's
+capacity (trusted or budget-charged); placement arithmetic is one constexpr
+function on checked_add/checked_multiply/contains_range, with no page rounding.
+Sealing passes the used bytes once to the unchanged sealed_region. Reads copy with
+memcpy after an always-compiled bound check that terminates; no pointer or
+reference into the mapping escapes. Not an allocator: no free, reuse, growth or
+allocator interface (spec/feature/sealed-packs.md non-goals). The staging copy is
+freed, not erased.
 
 Checked API and build profile audit (2026-11-10): the checked APIs are header-only,
 allocate nothing, keep no state and check every bound before writing or reading;

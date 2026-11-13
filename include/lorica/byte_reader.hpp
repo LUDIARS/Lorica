@@ -7,8 +7,10 @@
 #include <lorica/checked_integer.hpp>
 #include <bit>
 #include <climits>
+#include <concepts>
 #include <cstddef>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <type_traits>
 
@@ -24,6 +26,10 @@ class byte_reader final {
 public:
     constexpr byte_reader() noexcept = default;
     constexpr explicit byte_reader(std::span<const std::byte> bytes) noexcept : bytes_(bytes) {}
+    // A temporary container would be destroyed before the first read.
+    template<class R>
+        requires(!std::ranges::borrowed_range<R> && std::convertible_to<R, std::span<const std::byte>>)
+    explicit byte_reader(R&&) = delete;
 
     [[nodiscard]] constexpr std::size_t size() const noexcept { return bytes_.size(); }
     [[nodiscard]] constexpr std::size_t offset() const noexcept { return offset_; }
@@ -43,7 +49,7 @@ public:
     template<checked_integral T, std::endian Order>
         requires(Order == std::endian::big || Order == std::endian::little)
     [[nodiscard]] constexpr std::optional<T> read() noexcept {
-        using U = std::make_unsigned_t<T>;
+        using U = std::make_unsigned_t<std::remove_cv_t<T>>;
         const auto part = take(sizeof(T));
         if (!part) return std::nullopt;
         U value = 0;

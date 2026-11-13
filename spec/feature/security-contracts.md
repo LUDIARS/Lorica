@@ -123,7 +123,8 @@ force-included header.
 `examples/consumer` is an independent CMake project. Its `main` uses a live
 two-byte array, checks multiplication and a request budget before constructing
 a bounded view, and returns failure on rejected input. It consumes the installed
-`Lorica::boundary` target. External `LoricaInject.cmake` applies protection to its
+`Lorica::boundary` and `Lorica::protection` targets (it shows a sealed limit), so
+it needs an install built with protection. External `LoricaInject.cmake` applies protection to its
 `lorica_consumer` executable (`-DLORICA_PROFILE=extended` and
 `-DLORICA_DEPRECATE_UNSAFE_APIS=ON` select the extended profile and the unsafe API
 rejection); the example does not claim service deployment.
@@ -132,7 +133,8 @@ rejection); the example does not claim service deployment.
 
 Committed `spec/domains/*.domain.json` describes six responsibilities:
 boundary-validation (including the C++20 checked APIs), build-hardening (including
-the extended profile and the unsafe API header), variable-protection,
+the extended profile and the unsafe API header), variable-protection
+(including sealed packs and their demo),
 artifact-inspection, contract-verification and consumer-integration. These definitions do not disable
 review gates or claim test execution. Header-only C++ and Python may not be
 represented in a given analyzer snapshot; the map records their responsibility

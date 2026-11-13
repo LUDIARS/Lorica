@@ -15,6 +15,9 @@ struct budget_limits {
 class input_budget final {
 public:
     explicit constexpr input_budget(budget_limits limits) noexcept : remaining_(limits) {}
+    // A copy would be a second budget: charges to it would not reach this one.
+    input_budget(const input_budget&) = delete;
+    input_budget& operator=(const input_budget&) = delete;
 
     [[nodiscard]] constexpr bool consume(std::size_t bytes, std::size_t elements,
                                          std::size_t allocations) noexcept {
@@ -28,6 +31,8 @@ public:
 
     // Caller supplies the actual nesting depth before descending. This avoids
     // exporting a lifetime-sensitive RAII token; it does not observe recursion.
+    // depth is absolute, not a delta: permits_depth(1) at every level never stops
+    // a descent. remaining().depth is the configured maximum and never changes.
     [[nodiscard]] constexpr bool permits_depth(std::size_t depth) const noexcept {
         return depth <= remaining_.depth;
     }

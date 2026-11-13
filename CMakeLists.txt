@@ -54,6 +54,8 @@ if(LORICA_BUILD_TESTS)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_executable(lorica_boundary_tests tests/boundary.cpp)
     target_link_libraries(lorica_boundary_tests PRIVATE Lorica::boundary)
+    set_target_properties(lorica_boundary_tests PROPERTIES
+        CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
     lorica_harden_target(lorica_boundary_tests)
     add_test(NAME lorica.boundary COMMAND lorica_boundary_tests)
     # The C++20 headers, as C++20 and as C++23, under the extended profile and with
@@ -89,7 +91,33 @@ if(LORICA_BUILD_TESTS)
             lorica_deprecate_unsafe_apis(lorica_checked_tests_cxx${standard})
         endif()
         add_test(NAME lorica.checked.cxx${standard} COMMAND lorica_checked_tests_cxx${standard})
+        # The format checks by name: skipped (77) where the library lacks <format>.
+        add_test(NAME lorica.checked.format.cxx${standard} COMMAND lorica_checked_tests_cxx${standard} format)
+        set_tests_properties(lorica.checked.format.cxx${standard} PROPERTIES SKIP_RETURN_CODE 77)
     endforeach()
+    # LR-TEXT-02: a run-time format string must not compile (CWE-134). Without
+    # <format> the probe stops with its own message and the test is skipped.
+    file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/format_probes/runtime_format.cpp" CONTENT [=[
+#include <lorica/bounded_text.hpp>
+#include <string>
+#if !defined(__cpp_lib_format)
+#error "Lorica format probe skipped: no __cpp_lib_format"
+#endif
+int main(int, char** argv) {
+    char out[16];
+    const std::string format = argv[0];
+    return lorica::format_into(out, format, 1).has_value();
+}
+]=] @ONLY)
+    add_executable(lorica_probe_runtime_format EXCLUDE_FROM_ALL
+        "${CMAKE_CURRENT_BINARY_DIR}/format_probes/runtime_format.cpp")
+    target_link_libraries(lorica_probe_runtime_format PRIVATE Lorica::boundary)
+    target_compile_features(lorica_probe_runtime_format PRIVATE cxx_std_20)
+    add_test(NAME lorica.checked.runtime_format COMMAND "${CMAKE_COMMAND}" "-DBUILD_DIR=${CMAKE_BINARY_DIR}"
+        "-DTARGET=lorica_probe_runtime_format" "-DCONFIG=$<CONFIG>" "-DEXPECT=reject"
+        "-DDIAGNOSTIC=constant expression" -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_build_probe.cmake")
+    set_tests_properties(lorica.checked.runtime_format PROPERTIES RESOURCE_LOCK lorica_build_tree
+        SKIP_REGULAR_EXPRESSION "Lorica format probe skipped")
     if(lorica_extended)
         set(lorica_fortified "$<AND:$<CONFIG:Release,RelWithDebInfo,MinSizeRel>,$<NOT:$<BOOL:${WIN32}>>>")
         add_executable(lorica_hardening_tests tests/hardening.cpp)
@@ -174,6 +202,29 @@ if(LORICA_BUILD_TESTS)
         add_test(NAME lorica.protection_write_denied
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/protection_fault.py
                 $<TARGET_FILE:lorica_protection_tests>)
+        # Sealed packs: the API, then each violation in a child judged from outside.
+        foreach(name pack pack_fault)
+            add_executable(lorica_${name}_tests tests/${name}.cpp)
+            target_link_libraries(lorica_${name}_tests PRIVATE Lorica::protection)
+            lorica_harden_target(lorica_${name}_tests)
+        endforeach()
+        add_test(NAME lorica.pack.unit COMMAND lorica_pack_tests)
+        foreach(case IN ITEMS control:exit-0 write_first:access-violation write_last:access-violation
+                              load_outside:abort at_outside:abort)
+            string(REPLACE ":" ";" case "${case}")
+            list(GET case 0 mode)
+            list(GET case 1 ending)
+            add_test(NAME lorica.pack.stops.${mode}
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/pack_fault.py
+                    $<TARGET_FILE:lorica_pack_fault_tests> ${mode} ${ending})
+        endforeach()
+        # Readers without synchronisation can only fail where a race is reported.
+        if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=thread")
+            find_package(Threads REQUIRED)
+            add_executable(lorica_pack_readers_tests tests/pack_readers.cpp)
+            target_link_libraries(lorica_pack_readers_tests PRIVATE Lorica::protection Threads::Threads)
+            add_test(NAME lorica.pack.readers_tsan COMMAND lorica_pack_readers_tests)
+        endif()
     endif()
 endif()
 # Examples double as demos that cannot rot: with tests enabled they run as
@@ -181,6 +232,9 @@ endif()
 option(LORICA_BUILD_EXAMPLES "Build the examples (run as lorica.demo.* tests with LORICA_BUILD_TESTS)" OFF)
 if(LORICA_BUILD_EXAMPLES)
     add_subdirectory(examples/contracts)
+    if(LORICA_BUILD_PROTECTION)
+        add_subdirectory(examples/packing)
+    endif()
 endif()
 if(LORICA_BUILD_FUZZER)
     if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -188,7 +242,8 @@ if(LORICA_BUILD_FUZZER)
     endif()
     add_executable(lorica_boundary_fuzz tests/fuzz_boundary.cpp)
     target_link_libraries(lorica_boundary_fuzz PRIVATE Lorica::boundary)
-    target_compile_options(lorica_boundary_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+    target_compile_options(lorica_boundary_fuzz PRIVATE -fsanitize=fuzzer,address,undefined
+        -fno-sanitize-recover=all)
     target_link_options(lorica_boundary_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
 endif()
 
