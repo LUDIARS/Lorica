@@ -30,7 +30,7 @@ class Decl(NamedTuple):
     index: int              # token index of the name
     type: str
     specifiers: FrozenSet[str]  # _SPECIFIERS as written, plus const, reference, pointer,
-                            # atomic (an atomic* type), sync (SYNC_TYPES)
+                            # array, atomic (an atomic* type), sync (SYNC_TYPES)
 
 
 class Variable(NamedTuple):
@@ -143,6 +143,8 @@ def parse_declaration(tokens, match, lo: int, hi: int, type_name: str = "") -> O
             flags.add("reference")
         if pointer >= 0:
             flags.add("pointer")
+        if stop < len(part) and tokens[part[stop]].text == "[":
+            flags.add("array")
         written = spell(tokens, base[0], base[1], _SPECIFIERS) or type_name
         words = set(written.replace("::", " ").replace("<", " ").replace(">", " ").split())
         if any(w.startswith("atomic") for w in words):

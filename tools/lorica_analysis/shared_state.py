@@ -67,6 +67,7 @@ class Note(NamedTuple):         # a report line, shaped like complexity.Contribu
 class _Access(NamedTuple):
     facts: Facts
     event: Event
+    access: str                         # the event's, corrected with the datum's type
     locks: Optional[FrozenSet[str]]     # effective: own, from callers, atomic publication
     init: bool
 
@@ -106,6 +107,12 @@ def _locks(locks: Optional[FrozenSet[str]]) -> str:
     return "?" if locks is None else "{%s}" % ",".join(sorted(locks))
 
 
+class Result(NamedTuple):
+    entries: List[Entry]
+    data: Dict[str, Tuple[str, str, str]]           # datum -> (synchronization, finding, storage)
+    functions: Dict[str, Tuple[str, FrozenSet[str]]]  # function -> (sharing, flags)
+
+
 class Collector:
     """COMMANDS entry: add() reads one file, finish() judges the whole set."""
 
@@ -119,8 +126,14 @@ class Collector:
         return [], []
 
     def finish(self):
+        return self.result().entries, []
+
+    def result(self) -> Result:
         files, self.files = self.files, []
-        return _Analysis(files).entries(), []
+        analysis = _Analysis(files)
+        entries = analysis.entries()
+        return Result(entries, {d.v.name: (d.sync, d.finding, d.v.storage) for d in analysis.data.values()},
+                      analysis.summary)
 
 
 class _Analysis:
@@ -265,13 +278,19 @@ class _Analysis:
                 locks = locks | {"atomic:" + d.v.name.rsplit("::", 1)[-1] for j, e, d in published
                                  if (j > k and (e.access in ("write", "rmw") or e.op in _WRITER))
                                  or (j < k and (e.access in ("read", "rmw") or e.op in _READER))}
-            datum.accesses.append(_Access(facts, event, locks, self._init(facts, event, datum)))
+            access = event.access
+            if "decays" in event.flags and "array" in datum.v.specifiers:
+                access = "escape"           # `return buffer_;` from a function returning a pointer
+            elif access == "call" and datum.v.storage == "member" and "mutable" not in datum.v.specifiers \
+                    and "const" in facts.function.specifiers:
+                access = "read"             # a member is const in a const member function
+            datum.accesses.append(_Access(facts, event, access, locks, self._init(facts, event, datum)))
 
     def _judge(self, d: _Datum) -> None:
         live = [a for a in d.accesses if not a.init]
         spec = d.v.specifiers
         if "thread_local" in spec:
-            escaped = [a for a in live if a.event.access == "escape"]
+            escaped = [a for a in live if a.access == "escape"]
             d.sync, d.note = ("unknown", "the address of a thread_local escapes") if escaped else (
                 "not-needed", "thread_local")
             d.offending = set(map(id, escaped))
@@ -282,21 +301,21 @@ class _Analysis:
             d.note = "publication or guard" if d.publication else ""
             return
         if not live:
-            d.note = "not accessed in the analysed set"
+            d.note = "initialised only" if d.accesses else "not accessed in the analysed set"
             return
         unknown = [a for a in live if a.locks is None]
         if unknown:
             d.sync, d.note = "unknown", "lockset unknown at line %d" % unknown[0].event.line
             d.offending = set(map(id, unknown))
             return
-        writes = [a for a in live if a.event.access in ("write", "rmw")]
-        maybe = [a for a in live if a.event.access in ("call", "escape")]
+        writes = [a for a in live if a.access in ("write", "rmw")]
+        maybe = [a for a in live if a.access in ("call", "escape")]
         bases = [{n.replace("(shared)", "") for n in a.locks} for a in live]
         common = set.intersection(*bases)
         const_writes = [a for a in writes if "mutable" in spec and "const" in a.facts.function.specifiers
                         and not a.locks]
         shared_writes = [a for a in writes + maybe if a.locks and all("(shared)" in n for n in a.locks)]
-        escapes = [a for a in maybe if a.event.access == "escape" and a.locks]
+        escapes = [a for a in maybe if a.access == "escape" and a.locks]
         real = sorted(n for n in common if not n.startswith("atomic:"))
         locked = ", ".join((["lock:" + ",".join(real)] if real else []) + sorted(common - set(real)))
         if const_writes:
@@ -365,9 +384,9 @@ class _Analysis:
             metrics[d.finding] = 1
         metrics["unknown"] = int(d.sync == "unknown")
         notes = tuple(Note(a.event.line, "access", 1, "%s %s %s in %s%s" % (
-            a.event.access, _locks(a.locks), "init" if a.init else "", a.facts.function.name,
+            a.access, _locks(a.locks), "init" if a.init else "", a.facts.function.name,
             " (lambda)" if "lambda" in a.event.flags else "")) for a in d.accesses)
-        accesses = "; ".join("%d %s%s %s%s" % (a.event.line, a.event.access, "" if a.init else " " + _locks(a.locks),
+        accesses = "; ".join("%d %s%s %s%s" % (a.event.line, a.access, "" if a.init else " " + _locks(a.locks),
                                                 a.facts.function.name.rsplit("::", 1)[-1],
                                                 " (init)" if a.init else "") for a in d.accesses)
         label = "%s %s: synchronization %s%s%s%s" % (
@@ -393,7 +412,8 @@ class _Analysis:
                     access = by_event[id(event)]
                     if access.init:
                         continue
-                    mine.append((self._contribution(access, datum, fenced, found), "%s line %d: %s" % (
+                    value = self._contribution(access, datum, fenced, found)
+                    mine.append((value, "" if datum.atomic else "%s line %d: %s" % (
                         datum.v.name, where, datum.finding or datum.note or datum.sync)))
                     if event.kind == "call":
                         mine.append(("unknown", "indirect call through %s line %d" % (event.name, where)))
@@ -437,23 +457,28 @@ class _Analysis:
                     sharing[key], writer[key], changed = value, stream, True
             if not changed:
                 break
-        out = []
+        # A message built from several output calls can interleave between threads: count
+        # the function's own calls and its calls to functions that make exactly one.
+        single = {id(f) for f in self.facts if streams.get(id(f), 0) == 1 and not any(
+            writer[id(t)] for _, ts in self.calls[id(f)] for t in ts or ())}
+        out, self.summary = [], {}
         for facts in self.facts:
             key = id(facts)
             stream_calls = streams.get(key, 0) + sum(1 for _, ts in self.calls[key]
-                                                     if ts and any(writer[id(t)] for t in ts))
+                                                     if ts and any(id(t) in single for t in ts))
             if stream_calls >= 2:
                 flags[key].add("shared-stream")
             metrics = dict.fromkeys(FINDINGS, 0)
             for kind, _, _ in findings[key]:
                 metrics[kind] += kind != "unknown"
             metrics["unknown"] = int(sharing[key] == "unknown")
-            reasons = [r for v, r in own[key] if v in ("unknown", "thread-hostile")]
+            reasons = list(dict.fromkeys(r for v, r in own[key] if v in ("unknown", "thread-hostile") and r))
             if sharing[key] != _join(*(v for v, _ in own[key])):
                 reasons.append("through a callee")
             label = "sharing %s%s%s" % (sharing[key], "; flags: " + ", ".join(sorted(flags[key])) if flags[key] else "",
                                         "; " + "; ".join(reasons[:4]) + (" ..." if len(reasons) > 4 else "")
                                         if reasons else "")
+            self.summary[facts.function.name] = (sharing[key], frozenset(flags[key]))
             notes = tuple(Note(line, kind, 1, reason) for kind, line, reason in findings[key])
             out.append(Entry(self.sources[facts.function.file], facts.function, metrics, notes, label))
         return out
@@ -474,7 +499,7 @@ class _Analysis:
         if access.locks:
             return "self-synchronized(unverified)"
         if datum.v.storage == "member":
-            return "caller-synchronized:read" if event.access == "read" else "caller-synchronized:write"
+            return "caller-synchronized:read" if access.access == "read" else "caller-synchronized:write"
         return "unknown"
 
     def _atomicity(self, uses) -> Set[str]:

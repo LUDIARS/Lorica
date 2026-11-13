@@ -82,7 +82,7 @@ class Event(NamedTuple):
 class Facts(NamedTuple):
     function: Function
     events: List[Event]
-    returns_reference: bool
+    returns: str        # "&" (a reference), "*" (a pointer) or ""
     this_escapes: bool  # a constructor passes `this` on
 
 
@@ -137,10 +137,10 @@ class _Walker:
         self.t, self.m, self.f = source.tokens, source.match, function
         self.lambdas = {lam.introducer: lam for lam in function.lambdas}
         self.events: List[Event] = []
-        self.statement, self.parens, self.paired = 0, [], set()
+        self.statement, self.parens, self.paired, self.declaring = 0, [], set(), None
         self.this_escapes = False
         self.params: Dict[str, Tuple[bool, bool]] = {}     # name -> (referent, const referent)
-        self.returns_reference = False
+        self.returns = ""
         self._head(lines)
 
     # -- the declaration head: parameters and a reference/pointer return type
@@ -168,7 +168,8 @@ class _Walker:
                 before -= 1
             trailing = group and any(t[j].text == "->" for j in range(group[1], open_))
             tail = range(group[1], open_) if trailing else range(before, before + 1)
-            self.returns_reference = any(t[j].text in ("&", "&&", "*") for j in tail if j >= lo)
+            marks = {t[j].text for j in tail if j >= lo} & {"&", "&&", "*"}
+            self.returns = "&" if marks - {"*"} else "*" if marks else ""
         if group:
             for lo_, hi_ in _split(t, self.m, group[0] + 1, group[1]):
                 self._parameter(lo_, hi_)
@@ -235,7 +236,7 @@ class _Walker:
     def run(self) -> Facts:
         open_, close = self.f.body
         self._walk(open_ + 1, close, [_Frame(close)], frozenset())
-        return Facts(self.f, self.events, self.returns_reference, self.this_escapes)
+        return Facts(self.f, self.events, self.returns, self.this_escapes)
 
     def _walk(self, lo: int, hi: int, frames: List[_Frame], context: FrozenSet[str]) -> None:
         t, m = self.t, self.m
@@ -256,7 +257,7 @@ class _Walker:
                 elif text == "(" and m[k] > k:
                     before = t[k - 1]
                     kind = "control" if before.text in _CONTROL else "expr"
-                    self.parens.append((k, m[k], kind, before.text if before.kind == IDENTIFIER else ""))
+                    self.parens.append((k, m[k], kind, before.text))
                     if kind == "control":
                         frames.append(_Frame(self._statement_end(m[k] + 1, hi)))
                 elif text == "[" and k in self.lambdas:
@@ -324,23 +325,33 @@ class _Walker:
         return end
 
     def _declares(self, k: int) -> bool:
-        """An obvious local declaration: `T x =`, `T* x;`, `auto& x :`, `T x{`..."""
-        t = self.t
-        if self.parens and self.parens[-1][2] != "control" and self.parens[-1][3] != "catch":
-            return False
+        """An obvious local declaration: `T x =`, `T* x;`, `auto& x :`, `T x{`, `T a, x;`."""
+        t, top = self.t, self.parens[-1] if self.parens else None
         after = t[k + 1].text if k + 1 < len(t) else ";"
-        if after not in ("=", ";", "{", "(", ":", "[", ",", ")"):
+        if (top and top[2] != "control") or after not in ("=", ";", "{", "(", ":", "[", ",", ")") or (
+                after == ")" and not (top and top[3] == "catch")):
             return False
-        if after in (",", ")") and not (self.parens and self.parens[-1][3] in ("catch", "for", "if")):
-            if after == ")" or self.parens:
-                return False
         before = k - 1
+        if t[before].text == ",":
+            return self.declaring == (self.statement, len(self.parens))
         if t[before].text in ("*", "&", "&&"):
             before -= 1
         word = t[before]
-        if word.text in (">", ">>"):
-            return self._closes_template(before)
-        return (word.kind == IDENTIFIER and t[before - 1].text not in (".", "->")) or word.text in _TYPES
+        found = self._closes_template(before) if word.text in (">", ">>") else (
+            word.kind == IDENTIFIER and t[before - 1].text not in (".", "->")) or word.text in _TYPES
+        if found:
+            self.declaring = (self.statement, len(self.parens))
+        return found
+
+    def _angle_start(self, k: int) -> Optional[int]:
+        """Index of the name before the `<` matching the `>` at k, or None."""
+        depth, t = 0, self.t
+        while k > 0 and t[k].text not in (";", "{", "}"):
+            depth += {">": 1, ">>": 2, "<": -1}.get(t[k].text, 0)
+            if depth == 0:
+                return k - 1
+            k -= 1
+        return None
 
     def _closes_template(self, k: int) -> bool:
         depth, t = 0, self.t
@@ -362,10 +373,14 @@ class _Walker:
             return k + 1
         if after == "::":
             return k + 1
-        start = k
-        while start >= 2 and t[start - 1].text == "::" and t[start - 2].kind == IDENTIFIER:
-            start -= 2
-        chain = spell(t, start, k + 1)
+        start, names = k, [text]
+        while start >= 2 and t[start - 1].text == "::":
+            j = self._angle_start(start - 2) if t[start - 2].text in (">", ">>") else start - 2
+            if j is None or t[j].kind != IDENTIFIER:
+                break
+            start = j
+            names.insert(0, t[j].text)
+        chain = "::".join(names)
         qualified = start < k or t[k - 1].text == "::"
         if chain.startswith("std::") or not qualified:
             special = self._special(k, text, after, hi, frames, flags)
@@ -492,11 +507,14 @@ class _Walker:
         else:
             access = "read"
         returned = t[before - 1 if address else before].text == "return" and after == ";"
-        if returned and (address or (self.returns_reference and (not method or method[0] in _ESCAPING))):
+        if returned and (address or (self.returns and method and method[0] in _ESCAPING)
+                         or (self.returns == "&" and not method)):
             access = "escape"
+        elif returned and self.returns == "*" and not method:
+            flags = flags | {"decays"}      # an escape if the datum is an array
         elif address:
             access = "call"
-        elif access == "read" and t[before].text in ("(", ",") and after in (")", ",") and \
+        elif access == "read" and j == k + 1 and t[before].text in ("(", ",") and after in (")", ",") and \
                 self.parens and self.parens[-1][2] == "expr" and self.parens[-1][3] and not deref:
             access = "call"         # passed by name: possibly by non-const reference
         if method and method[0] in ("lock", "lock_shared", "unlock", "unlock_shared", "try_lock"):
