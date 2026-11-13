@@ -2,18 +2,26 @@
 # (SPEC-LR-SEALED acceptance). Installs the build tree to a scratch prefix, then
 # configures examples/consumer against it through CMAKE_PREFIX_PATH and the
 # installed LoricaInject.cmake, builds and runs it; judged by exit status and by
-# which package was found. Run with cmake -P:
-#   -DBUILD_DIR=<Lorica build tree> -DSOURCE_DIR=<examples/consumer> -DWORK_DIR=<scratch>
+# which package was found. Then builds examples/contracts against the same prefix
+# (Lorica::contracts) and runs its tests. Run with cmake -P:
+#   -DBUILD_DIR=<Lorica build tree> -DSOURCE_DIR=<examples/consumer>
+#   -DCONTRACTS_SOURCE_DIR=<examples/contracts> -DWORK_DIR=<scratch>
 #   -DLIBDIR=<CMAKE_INSTALL_LIBDIR> -DGENERATOR=<generator> -DCXX_COMPILER=<compiler>
 #   [-DCXX_FLAGS=<flags the library was built with>] [-DCONFIG=<configuration>]
-foreach(variable BUILD_DIR SOURCE_DIR WORK_DIR LIBDIR GENERATOR CXX_COMPILER)
+foreach(variable BUILD_DIR SOURCE_DIR CONTRACTS_SOURCE_DIR WORK_DIR LIBDIR GENERATOR CXX_COMPILER)
     if(NOT ${variable})
         message(FATAL_ERROR "protection_consumer: ${variable} is required")
     endif()
 endforeach()
-if(NOT CONFIG)
+# An empty configuration installs its own files; the consumers then build Release.
+set(install_config)
+if(CONFIG)
+    set(install_config --config "${CONFIG}")
+else()
     set(CONFIG Release)
 endif()
+# An empty $<CONFIG> leaves a trailing slash; the cache holds the normalized path.
+get_filename_component(WORK_DIR "${WORK_DIR}" ABSOLUTE)
 string(TOUPPER "${CONFIG}" config_upper)
 set(prefix "${WORK_DIR}/prefix")
 set(bin "${WORK_DIR}/bin")
@@ -24,7 +32,7 @@ function(lorica_step name)
         message(FATAL_ERROR "${name} failed (${result}):\n${output}")
     endif()
 endfunction()
-lorica_step(install "${CMAKE_COMMAND}" --install "${BUILD_DIR}" --config "${CONFIG}" --prefix "${prefix}")
+lorica_step(install "${CMAKE_COMMAND}" --install "${BUILD_DIR}" ${install_config} --prefix "${prefix}")
 # A per-configuration output directory gets no configuration subdirectory, so the
 # program is in the same place under single- and multi-config generators.
 lorica_step(configure "${CMAKE_COMMAND}" -S "${SOURCE_DIR}" -B "${WORK_DIR}/build" -G "${GENERATOR}"
@@ -42,3 +50,9 @@ if(CMAKE_HOST_WIN32)
     set(suffix .exe)
 endif()
 lorica_step(run "${bin}/lorica_consumer${suffix}")
+lorica_step(configure_contracts "${CMAKE_COMMAND}" -S "${CONTRACTS_SOURCE_DIR}" -B "${WORK_DIR}/contracts"
+    -G "${GENERATOR}" "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}" "-DCMAKE_CXX_FLAGS=${CXX_FLAGS}"
+    "-DCMAKE_BUILD_TYPE=${CONFIG}" "-DCMAKE_PREFIX_PATH=${prefix}")
+lorica_step(build_contracts "${CMAKE_COMMAND}" --build "${WORK_DIR}/contracts" --config "${CONFIG}")
+lorica_step(test_contracts "${CMAKE_CTEST_COMMAND}" --test-dir "${WORK_DIR}/contracts" -C "${CONFIG}"
+    --output-on-failure --no-tests=error)

@@ -223,8 +223,8 @@ function(_lorica_apply_baseline target kind)
         # Read the final profile at generation time, including a later upgrade.
         set(extended "$<STREQUAL:$<TARGET_PROPERTY:LORICA_HARDENING_PROFILE>,extended>")
         set(mode "$<IF:${extended},_LIBCPP_HARDENING_MODE_EXTENSIVE,_LIBCPP_HARDENING_MODE_FAST>")
-        target_compile_definitions("${target}" PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:_GLIBCXX_ASSERTIONS>")
         target_compile_options("${target}" PRIVATE
+            "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-U_GLIBCXX_ASSERTIONS -D_GLIBCXX_ASSERTIONS>"
             "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-U_LIBCPP_HARDENING_MODE -D_LIBCPP_HARDENING_MODE=${mode}>")
         set_property(TARGET "${target}" PROPERTY POSITION_INDEPENDENT_CODE TRUE)
         if(kind MATCHES "^(EXECUTABLE|SHARED_LIBRARY|MODULE_LIBRARY)$")
@@ -246,7 +246,9 @@ endfunction()
 function(_lorica_extended_unsupported out)
     _lorica_prepare_checks()
     set(reason "")
-    if(MSVC AND WIN32)
+    if(NOT CMAKE_CXX_COMPILER_LOADED)
+        set(reason "the CXX language is not enabled; Lorica's build functions require it")
+    elseif(MSVC AND WIN32)
         if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" OR MSVC_VERSION LESS 1944)
             set(reason "EXTENDED needs MSVC 19.44 (Visual Studio 2022 17.14) or newer for STL hardening")
         elseif(NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
@@ -351,6 +353,9 @@ function(lorica_harden_target target)
     if(arg_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR "Lorica: unknown lorica_harden_target arguments: ${arg_UNPARSED_ARGUMENTS}")
     endif()
+    if(NOT CMAKE_CXX_COMPILER_LOADED)
+        message(FATAL_ERROR "Lorica: the CXX language is not enabled; Lorica's build functions require it")
+    endif()
     _lorica_require_compiled_target("${target}")
     get_target_property(kind "${target}" TYPE)
     get_target_property(applied "${target}" LORICA_HARDENED)
@@ -380,15 +385,16 @@ endfunction()
 function(_lorica_unsafe_api_unsupported out)
     _lorica_prepare_checks()
     set(reason "")
-    if(MSVC AND WIN32)
+    if(NOT CMAKE_CXX_COMPILER_LOADED)
+        set(reason "the CXX language is not enabled; Lorica's build functions require it")
+    elseif(MSVC AND WIN32)
         if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
             set(reason "unsafe API rejection does not support clang-cl, which ignores /we4996")
         endif()
     elseif(WIN32)
         set(reason "unsafe API rejection does not support MinGW, whose C library does not deprecate these functions")
-    elseif(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
-        include(CheckCXXSourceCompiles)
-        check_cxx_source_compiles([=[
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
+        check_source_compiles(CXX [=[
 #if defined(__has_include)
 #if __has_include(<gnu/libc-version.h>)
 #include <features.h>
@@ -405,7 +411,7 @@ int main() { return 0; }
             set(reason "unsafe API rejection does not support Clang with glibc 2.40 or newer, whose fortified overloads it cannot reach; use GCC for this check")
         endif()
     else()
-        set(reason "unsafe API rejection does not support ${CMAKE_CXX_COMPILER_ID}")
+        set(reason "unsafe API rejection does not support ${CMAKE_CXX_COMPILER_ID} on ${CMAKE_SYSTEM_NAME}")
     endif()
     set(${out} "${reason}" PARENT_SCOPE)
 endfunction()
@@ -426,7 +432,9 @@ endfunction()
 # Run when the top-level directory is done, so sources and precompiled headers
 # added after lorica_deprecate_unsafe_apis count too: a precompiled header is
 # compiled as a system header (CMake marks it so), where deprecations are not
-# reported, and C sources do not get the C++ header.
+# reported, and a C source would stop at the C++ header's #error. Refused here for
+# a readable message; inherited precompiled headers are switched off and C sources
+# this scan cannot see still stop at that #error.
 function(_lorica_check_unsafe_api_target target)
     get_target_property(pch "${target}" PRECOMPILE_HEADERS)
     get_target_property(pch_reuse "${target}" PRECOMPILE_HEADERS_REUSE_FROM)
@@ -449,9 +457,10 @@ endfunction()
 # copy and format functions in the target's C++ sources fails to compile. GCC and
 # Clang force-include <lorica/unsafe_api.hpp> and make deprecation warnings errors;
 # MSVC makes deprecation warning C4996 an error. Either way every deprecation in
-# the target becomes an error, not only these six. Unsupported toolchains, targets
-# with C sources or precompiled headers, and C++20 module units (which cannot take
-# a force-included header) are refused.
+# the target becomes an error, not only these six. Unsupported toolchains and
+# targets with C sources or precompiled headers are refused; precompiled headers
+# inherited from linked targets are switched off. C++20 module units cannot take a
+# force-included header and fail to compile.
 function(lorica_deprecate_unsafe_apis target)
     _lorica_require_compiled_target("${target}")
     get_target_property(applied "${target}" LORICA_UNSAFE_APIS_DEPRECATED)
@@ -462,17 +471,23 @@ function(lorica_deprecate_unsafe_apis target)
     if(reason)
         message(FATAL_ERROR "Lorica: ${reason}; no silent fallback")
     endif()
+    # SHELL: keeps CMake from dropping an option the target already has earlier,
+    # where a later -Wno-error=... would then win.
     if(MSVC AND WIN32)
-        target_compile_options("${target}" PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:/we4996>")
+        target_compile_options("${target}" PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:SHELL:/we4996>")
     else()
         get_property(header GLOBAL PROPERTY LORICA_UNSAFE_API_HEADER)
         if(NOT EXISTS "${header}")
             message(FATAL_ERROR "Lorica: lorica/unsafe_api.hpp not found; use find_package(Lorica) or set LORICA_INCLUDE_DIR")
         endif()
+        # C units get the header too, whose #error stops them however they were added.
         target_compile_options("${target}" PRIVATE
-            "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include \"${header}\">"
-            "$<$<COMPILE_LANGUAGE:CXX>:-Werror=deprecated-declarations>")
+            "$<$<COMPILE_LANGUAGE:C,CXX>:SHELL:-include \"${header}\">"
+            "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-Werror=deprecated-declarations>"
+            "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang>>:SHELL:-Werror=user-defined-warnings>")
     endif()
+    # A precompiled header inherited from a linked target is compiled as a system header.
+    set_property(TARGET "${target}" PROPERTY DISABLE_PRECOMPILE_HEADERS ON)
     set_property(TARGET "${target}" PROPERTY LORICA_UNSAFE_APIS_DEPRECATED TRUE)
     # A deferred call's arguments are read when it runs, so the name is put in now.
     cmake_language(EVAL CODE

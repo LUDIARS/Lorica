@@ -35,27 +35,52 @@ else()
         PATTERN sealed_region.hpp EXCLUDE)
 endif()
 
-# All modules in a process must import the same contracts runtime.
-add_library(lorica_contracts SHARED src/contract_violation.cpp)
-add_library(Lorica::contracts ALIAS lorica_contracts)
-set_target_properties(lorica_contracts PROPERTIES
-    EXPORT_NAME contracts
-    DEFINE_SYMBOL LORICA_BUILDING_CONTRACTS
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN YES
-    SOVERSION ${PROJECT_VERSION_MAJOR})
-target_link_libraries(lorica_contracts PUBLIC Lorica::boundary)
-lorica_harden_target(lorica_contracts)
-install(TARGETS lorica_contracts EXPORT LoricaTargets
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+# The runtime is hardened, so it needs a supported hardening toolchain/platform;
+# OFF leaves the header-only parts usable elsewhere.
+option(LORICA_BUILD_CONTRACTS "Build the contracts runtime (Lorica::contracts)" ON)
+if(LORICA_BUILD_CONTRACTS)
+    # All modules in a process must import the same contracts runtime.
+    add_library(lorica_contracts SHARED src/contract_violation.cpp)
+    add_library(Lorica::contracts ALIAS lorica_contracts)
+    set_target_properties(lorica_contracts PROPERTIES
+        EXPORT_NAME contracts
+        DEFINE_SYMBOL LORICA_BUILDING_CONTRACTS
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN YES
+        SOVERSION ${PROJECT_VERSION_MAJOR})
+    target_link_libraries(lorica_contracts PUBLIC Lorica::boundary)
+    lorica_harden_target(lorica_contracts)
+    install(TARGETS lorica_contracts EXPORT LoricaTargets
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+else()
+    list(APPEND lorica_header_excludes PATTERN contracts.hpp EXCLUDE PATTERN contract_overlay.hpp EXCLUDE
+        PATTERN contract_violation.hpp EXCLUDE)
+endif()
 
 option(LORICA_BUILD_TESTS "Build boundary contract tests" OFF)
 option(LORICA_BUILD_FUZZER "Build Clang libFuzzer target (test use only)" OFF)
+option(LORICA_TEST_REQUIRE_EXTENDED "Fail configuration when the extended-profile tests cannot run" OFF)
 if(LORICA_BUILD_TESTS)
+    if(NOT LORICA_BUILD_CONTRACTS)
+        message(FATAL_ERROR "Lorica: LORICA_BUILD_TESTS requires LORICA_BUILD_CONTRACTS")
+    endif()
     enable_testing()
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    # A check the toolchain cannot run is registered disabled: CTest reports it as
+    # not run, never as passed.
+    function(lorica_add_disabled_test name)
+        add_test(NAME "${name}" COMMAND "${CMAKE_COMMAND}" -E false)
+        set_tests_properties("${name}" PROPERTIES DISABLED TRUE)
+    endfunction()
+    # Small projects that must be refused, or applied, by Lorica's build functions.
+    function(lorica_add_build_refusals name group)
+        add_test(NAME "${name}" COMMAND "${CMAKE_COMMAND}" "-DLORICA_CMAKE_DIR=${PROJECT_SOURCE_DIR}/cmake"
+            "-DWORK_DIR=${PROJECT_BINARY_DIR}/build_refusals" "-DGENERATOR=${CMAKE_GENERATOR}"
+            "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}" "-DGROUP=${group}" ${ARGN}
+            -P "${PROJECT_SOURCE_DIR}/tests/build_refusals.cmake")
+    endfunction()
     add_executable(lorica_boundary_tests tests/boundary.cpp)
     target_link_libraries(lorica_boundary_tests PRIVATE Lorica::boundary)
     set_target_properties(lorica_boundary_tests PROPERTIES
@@ -66,11 +91,17 @@ if(LORICA_BUILD_TESTS)
     # the unbounded C APIs rejected, where the toolchain offers each. Checks the
     # toolchain cannot run are reported as not run, never as passed.
     lorica_extended_hardening_supported(lorica_extended)
+    if(LORICA_TEST_REQUIRE_EXTENDED AND NOT lorica_extended)
+        message(FATAL_ERROR "Lorica: the extended-profile tests are required but cannot run: ${lorica_extended_REASON}")
+    endif()
     # Native generators with a compilation database can check the actual C/C++
     # command lines. Fault-injection cases require an otherwise capable host.
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING AND
        CMAKE_GENERATOR MATCHES "^(Ninja|Ninja Multi-Config|Unix Makefiles)$")
-        foreach(case normal missing_flag older_libc unoptimized unknown_cpu)
+        # harness_control injects nothing, so the harness must report the strict
+        # configuration that succeeded.
+        foreach(case normal missing_flag older_libc unoptimized unknown_cpu old_compiler abi32
+                     no_stdlib no_autoinit harness_control)
             add_test(NAME lorica.profiles.${case} COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/profiles/check.py" "${CMAKE_COMMAND}"
                 "${CMAKE_CURRENT_BINARY_DIR}/profiles/$<CONFIG>" "${CMAKE_GENERATOR}"
@@ -80,8 +111,15 @@ if(LORICA_BUILD_TESTS)
                 set_tests_properties(lorica.profiles.${case} PROPERTIES DISABLED TRUE)
             endif()
         endforeach()
+        set_tests_properties(lorica.profiles.harness_control PROPERTIES
+            PASS_REGULAR_EXPRESSION "configuration unexpectedly succeeded")
     endif()
     lorica_unsafe_api_rejection_supported(lorica_unsafe_api)
+    lorica_add_build_refusals(lorica.build_refusals build
+        "-DEXTENDED=${lorica_extended}" "-DUNSAFE=${lorica_unsafe_api}")
+    lorica_add_build_refusals(lorica.build_refusals.harness_control harness_control)
+    set_tests_properties(lorica.build_refusals.harness_control PROPERTIES
+        PASS_REGULAR_EXPRESSION "accepted was accepted")
     foreach(standard 20 23)
         add_executable(lorica_checked_tests_cxx${standard} tests/checked.cpp)
         target_link_libraries(lorica_checked_tests_cxx${standard} PRIVATE Lorica::boundary)
@@ -124,6 +162,11 @@ int main(int, char** argv) {
         SKIP_REGULAR_EXPRESSION "Lorica format probe skipped")
     if(lorica_extended)
         set(lorica_fortified "$<AND:$<CONFIG:Release,RelWithDebInfo,MinSizeRel>,$<NOT:$<BOOL:${WIN32}>>>")
+        if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=[^ ]*address")
+            # AddressSanitizer reports the overflowing copy before glibc's check can.
+            message(STATUS "Lorica: lorica.hardening_stops does not check the FORTIFY stop under AddressSanitizer")
+            set(lorica_fortified 0)
+        endif()
         add_executable(lorica_hardening_tests tests/hardening.cpp)
         target_compile_features(lorica_hardening_tests PRIVATE cxx_std_17)
         target_compile_definitions(lorica_hardening_tests PRIVATE
@@ -137,9 +180,49 @@ int main(int, char** argv) {
                 $<IF:${lorica_fortified},fortified,unfortified>)
     else()
         message(STATUS "Lorica: lorica.hardening_stops not run: ${lorica_extended_REASON}")
-        add_test(NAME lorica.hardening_stops COMMAND ${CMAKE_COMMAND} -E false)
-        set_tests_properties(lorica.hardening_stops PROPERTIES DISABLED TRUE)
+        lorica_add_disabled_test(lorica.hardening_stops)
     endif()
+    if(NOT WIN32)
+        # Control: the harness must reject a child that exits with an error instead
+        # of being stopped.
+        set(child "${CMAKE_CURRENT_BINARY_DIR}/hardening_control/child")
+        file(WRITE "${child}" "#!/bin/sh\n[ $# -eq 0 ]\n")
+        file(CHMOD "${child}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+        add_test(NAME lorica.hardening_stops.harness_control
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/hardening_fault.py "${child}" unfortified)
+        set_tests_properties(lorica.hardening_stops.harness_control PROPERTIES
+            PASS_REGULAR_EXPRESSION "--element was not stopped by the extended profile \\(exit 1\\)")
+    endif()
+    # Lorica's own libraries and the tests that rely on a profile carry it; the
+    # options each profile gives are checked by lorica.profiles.*.
+    set(lorica_profile baseline)
+    if(lorica_extended)
+        set(lorica_profile extended)
+    endif()
+    set(lorica_applied lorica_contracts)
+    set(lorica_applied_expected "lorica_contracts=baseline,")
+    if(LORICA_BUILD_PROTECTION)
+        list(APPEND lorica_applied lorica_protection)
+        string(APPEND lorica_applied_expected " lorica_protection=baseline,")
+    endif()
+    foreach(standard 20 23)
+        list(APPEND lorica_applied lorica_checked_tests_cxx${standard})
+        string(APPEND lorica_applied_expected " lorica_checked_tests_cxx${standard}=${lorica_profile},")
+        if(lorica_unsafe_api)
+            string(APPEND lorica_applied_expected "TRUE")
+        endif()
+    endforeach()
+    if(lorica_extended)
+        list(APPEND lorica_applied lorica_hardening_tests)
+        string(APPEND lorica_applied_expected " lorica_hardening_tests=extended,")
+    endif()
+    list(TRANSFORM lorica_applied REPLACE "^(.+)$"
+        "\\1=$<TARGET_PROPERTY:\\1,LORICA_HARDENING_PROFILE>,$<TARGET_PROPERTY:\\1,LORICA_UNSAFE_APIS_DEPRECATED>")
+    list(JOIN lorica_applied " " lorica_applied)
+    add_test(NAME lorica.hardening_applied COMMAND "${CMAKE_COMMAND}" -E echo "[${lorica_applied}]")
+    set_tests_properties(lorica.hardening_applied PROPERTIES PASS_REGULAR_EXPRESSION "\\[${lorica_applied_expected}\\]")
+    include(tests/verify_binary.cmake)
+    lorica_add_verifier_tests()
     include(tests/unsafe_api_probes.cmake)
     lorica_add_unsafe_api_probes()
 
@@ -245,9 +328,10 @@ int main() { const lorica::sealed_value<@type@> value{{}}; return 0; }
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_build_probe.cmake")
             set_tests_properties(lorica.protection.rejects_${probe} PROPERTIES RESOURCE_LOCK lorica_build_tree)
         endforeach()
-        # The installed package, found and injected by an independent project.
+        # The installed package, found and injected by independent projects.
         add_test(NAME lorica.protection_consumer COMMAND "${CMAKE_COMMAND}"
             "-DBUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}" "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/examples/consumer"
+            "-DCONTRACTS_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/examples/contracts"
             "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/protection_consumer/$<CONFIG>"
             "-DLIBDIR=${CMAKE_INSTALL_LIBDIR}" "-DGENERATOR=${CMAKE_GENERATOR}"
             "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}" "-DCXX_FLAGS=${CMAKE_CXX_FLAGS}" "-DCONFIG=$<CONFIG>"
@@ -282,7 +366,9 @@ endif()
 # lorica.demo.* tests.
 option(LORICA_BUILD_EXAMPLES "Build the examples (run as lorica.demo.* tests with LORICA_BUILD_TESTS)" OFF)
 if(LORICA_BUILD_EXAMPLES)
-    add_subdirectory(examples/contracts)
+    if(LORICA_BUILD_CONTRACTS)
+        add_subdirectory(examples/contracts)
+    endif()
     if(LORICA_BUILD_PROTECTION)
         add_subdirectory(examples/packing)
     endif()
