@@ -17,6 +17,12 @@ process (see above). Its results are
 heuristics (no macro expansion, no type resolution) and fail closed: what it cannot
 parse is reported, not guessed.
 
+The `shared-state` subcommand adds no dependency: Python 3 standard library, same
+input handling, nothing executed. Its opt-in ThreadSanitizer oracle
+(`-DLORICA_ANALYSIS_TSAN_ORACLE=ON`, test-only) compiles and runs the shared-state
+fixtures with the configured C++ compiler and `-fsanitize=thread` (GCC's libtsan on
+Linux); it is skipped (exit 77) when that runtime is missing.
+
 The `constexpr` subcommand of tools/lorica_analyze.py starts a C++ compiler, and only
 when asked: the compilers named by --compiler or by the entries of --compile-commands.
 Only GCC and Clang are accepted (identified by `--version`; cl and clang-cl are

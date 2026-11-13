@@ -15,7 +15,7 @@ Components (C++17 unless noted, CMake 3.24+):
 | `lorica_deprecate_unsafe_apis` | Uses of `strcpy`/`strcat`/`sprintf`/`vsprintf`/`wcscpy`/`wcscat` in a target's C++ sources fail to compile; every deprecation becomes an error; [limits](spec/feature/security-contracts.md#SPEC-LR-UNSAFE-API) |
 | `LoricaInject.cmake` | External CMake injection for an explicit target allowlist |
 | `tools/verify_binary.py` | Selected PE/ELF executable metadata checks; does not execute the binary |
-| `tools/lorica_analyze.py` | Per-function complexity gate (cyclomatic, cognitive, nesting, parameters, NLOC) read from C/C++ text with no compiler; thresholds and a baseline, exit 1 on violation; reports what it could not parse ([limits](spec/feature/source-analysis.md#SPEC-LR-ANALYZE)) |
+| `tools/lorica_analyze.py` | Assertion-style source gates read from C/C++ text: `complexity` (cyclomatic, cognitive, nesting, parameters, NLOC), `shared-state` (per-datum locksets, atomics and their memory orders) and `constexpr` (tries the specifier with GCC/Clang in a copy of the tree); thresholds and a baseline, exit 1 on violation; reports what it could not parse or resolve ([limits](spec/feature/source-analysis.md#SPEC-LR-ANALYZE)) |
 
 ## Use
 
@@ -241,6 +241,23 @@ add_test(NAME myapp.complexity COMMAND ${Python3_EXECUTABLE}
     ${LORICA_SOURCE_DIR}/tools/lorica_analyze.py complexity --strict --max-cognitive 15
     --baseline ${CMAKE_CURRENT_SOURCE_DIR}/analysis-baseline.json ${CMAKE_CURRENT_SOURCE_DIR}/src)
 ```
+
+`shared-state` reads the same sources for shared data. A memory barrier
+(`std::atomic_thread_fence`) never repairs a data race on a non-atomic object: shared
+plain data needs `std::atomic` or the same lock at every access. The tool lists
+each datum with the locks held at its accesses and fails on a finding kind once it
+has a limit:
+
+```sh
+python3 tools/lorica_analyze.py shared-state src include --all     # the per-datum table
+python3 tools/lorica_analyze.py shared-state src include --strict \
+    --max-inconsistent-locking 0 --max-unsynchronized 0 --max-relaxed-publication 0 --max-invalid-order 0
+```
+
+`lock:<names>` means consistent in the analysed files, not proven race-free; use
+ThreadSanitizer for evidence. Unresolved code is reported as `unknown`, never as
+safe. On Lorica it reports one atomic (`installed_handler`), one `thread_local` and
+one shared stream ([self-report](spec/plan/2026-11-13-shared-state-report.md)).
 
 `constexpr` tries the `constexpr` specifier with GCC or Clang in a temporary copy of
 the tree (never in your files) and reports, per compiler and standard, `rejected`,

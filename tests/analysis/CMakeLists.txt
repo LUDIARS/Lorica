@@ -26,3 +26,25 @@ add_test(NAME lorica.analysis.constexpr
 add_test(NAME lorica.analysis.constexpr.compilers
     COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_constexpr_compilers.py)
 set_tests_properties(lorica.analysis.constexpr.compilers PROPERTIES SKIP_RETURN_CODE 77)
+# shared-state: the concurrency review's decision rules as fixtures, the gate and
+# Lorica's own self-report (no compiler needed); the adoption example fails on its
+# two findings and passes with its baseline.
+add_test(NAME lorica.analysis.shared_state
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_shared_state.py)
+set(lorica_shared_state ${Python3_EXECUTABLE} -B ${PROJECT_SOURCE_DIR}/tools/lorica_analyze.py shared-state)
+add_test(NAME lorica.analysis.example.shared_state
+    COMMAND ${lorica_shared_state} --max-inconsistent-locking 0 --max-unsynchronized 0 ${lorica_example}/shared.cpp)
+set_tests_properties(lorica.analysis.example.shared_state PROPERTIES
+    PASS_REGULAR_EXPRESSION "FAIL [^\n]*shared.cpp:15 registry::hits_: inconsistent-locking 1 > 0\n")
+add_test(NAME lorica.analysis.example.shared_state.baseline
+    COMMAND ${lorica_shared_state} --strict --max-inconsistent-locking 0 --max-unsynchronized 0
+        --baseline ${lorica_example}/shared-state-baseline.json ${lorica_example}/shared.cpp)
+# Opt-in: the same fixtures under ThreadSanitizer, which must agree with each
+# `// tsan:` marker; skipped (77) when the compiler cannot run -fsanitize=thread.
+option(LORICA_ANALYSIS_TSAN_ORACLE "Check the shared-state fixtures with ThreadSanitizer" OFF)
+if(LORICA_ANALYSIS_TSAN_ORACLE)
+    add_test(NAME lorica.analysis.shared_state.tsan
+        COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tsan_oracle.py
+            --compiler ${CMAKE_CXX_COMPILER} --jobs 2)
+    set_tests_properties(lorica.analysis.shared_state.tsan PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800)
+endif()

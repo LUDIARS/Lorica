@@ -68,6 +68,21 @@ Lorica's own sources under `--strict`. The clang-tidy cross-check in
 passed then. Optional: `LORICA_ANALYSIS_SYSTEM_HEADERS=/usr/include/c++/13` adds a
 no-exception, time-bounded run over a whole header tree.
 
+`lorica.analysis.shared_state` runs `tests/analysis/test_shared_state.py`: 38 fixtures
+(`tests/analysis/fixtures/shared_state/`, the concurrency review's decision rules
+C1-C16) with exact expected synchronization per datum, findings and sharing values;
+mutations of six correct fixtures that must add a finding; the gate's exit codes,
+baseline and suppression; Lorica's own `include/` and `src/` (two non-member data,
+no finding, one shared stream). `lorica.analysis.example.shared_state` and
+`.shared_state.baseline` run the adoption example as a failing and a baselined gate.
+Opt-in (`-DLORICA_ANALYSIS_TSAN_ORACLE=ON`): `lorica.analysis.shared_state.tsan` builds
+every `// tsan: race|clean` fixture line into a two-thread driver with
+`-std=c++17 -O1 -g -fsanitize=thread` (spin gate, volatile sink, up to five runs) and
+requires ThreadSanitizer to agree; it is skipped (77), never passed, when the compiler
+cannot run TSan programs. Fixtures marked `not-observable` (invalid orders, `n = n + 1`,
+strtok, fences, an escaping `this`, K&R) are listed, not run. Recorded 2026-11-13 with
+GCC 13.3: 48 of 48 drivers agree in five consecutive runs.
+
 `lorica.analysis.constexpr` (Python unittest with a fake compiler, runs everywhere)
 checks the constexpr subcommand: locator and exclusion reasons, insertion points,
 the strict flags and the stripped ones, diagnostic parsing, no shell and the
