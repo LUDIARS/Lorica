@@ -396,10 +396,13 @@ class _Walker:
             if after == "=" and t[k + 2].text == "[":
                 frames[-1].lambdas.add(text)
             return k + 1
+        # called, also through a cast or parentheses: `static_cast<F&&>(f)(x)`, `(f)(x)`
+        called = after == "(" or (after == ")" and self.m[k + 1] == k - 1 and k + 2 < len(t)
+                                  and t[k + 2].text == "(")
         if kind == "local":
             if any(text == lock.var for f in frames for lock in f.locks):
                 self._guard_used(k, text, frames)
-            elif after == "(" and text not in where.lambdas:
+            elif called and text not in where.lambdas:
                 self._emit("call", text, k, frames, flags, access="indirect", arity=self._arity(k + 1))
             return k + 1
         if kind == "static":
@@ -407,14 +410,15 @@ class _Walker:
         elif not qualified and "this" not in flags and text in self.params:
             referent, const = self.params[text]
             deref = self._unary(k, "*") or after in ("->", "[")
-            if after == "(":
+            if called:
                 self._emit("call", text, k, frames, flags, access="indirect", arity=self._arity(k + 1))
                 return k + 1
             if not (referent or deref):
                 return k + 1
             flags |= {"param"} | ({"const"} if const and not deref else set())
-        elif after == "(" or (after == "<" and self._template_call(k + 1)):
-            self._emit("call", chain, k, frames, flags, access="free", arity=self._arity(self._call_paren(k + 1)))
+        elif called or (after == "<" and self._template_call(k + 1)):
+            self._emit("call", chain, k, frames, flags, access="free" if after != ")" else "indirect",
+                       arity=self._arity(self._call_paren(k + 1)))
             return k + 1
         self._use(k, start, chain, frames, flags)
         return k + 1
@@ -436,6 +440,8 @@ class _Walker:
             self._emit("libc", text, k, frames, flags)
         elif text in _STDIO or (text in _FILE_IO and args & {"stdout", "stderr"}):
             self._emit("stream", text, k, frames, flags, arity=1)
+        elif text in ("invoke", "invoke_r", "apply", "visit"):
+            self._emit("call", text, k, frames, flags, access="indirect")     # calls its argument
         elif text in EFFECTS:
             self._emit("effect", text, k, frames, flags)
         elif text == "call_once":

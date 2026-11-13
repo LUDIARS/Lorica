@@ -497,8 +497,8 @@ class _Analysis:
             if kind:
                 found.append((kind, event.line, reason))
             return "thread-hostile" if kind and kind != "unknown" else kind or "self-synchronized(unverified)"
-        if datum.sync == "not-needed":
-            return "no-shared-state"
+        if datum.sync == "not-needed":     # a member is still the caller's object (C1)
+            return "caller-synchronized:read" if datum.v.storage == "member" else "no-shared-state"
         if access.locks is None or (datum.sync == "unknown" and id(access) in datum.offending):
             return "unknown"
         if datum.finding and id(access) in datum.offending:
