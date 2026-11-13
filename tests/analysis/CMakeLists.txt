@@ -19,3 +19,10 @@ add_test(NAME lorica.analysis.self
     COMMAND ${lorica_analyze} --strict ${PROJECT_SOURCE_DIR}/include ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_SOURCE_DIR}/tests ${PROJECT_SOURCE_DIR}/examples
         --exclude */tests/analysis/fixtures/*)
+# constexpr: hermetic tests (fake compiler), then the design review's case matrix
+# and the copied-tree checks with g++ 13 / clang++ 18 (exit 77 = skipped, never passed).
+add_test(NAME lorica.analysis.constexpr
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_constexpr.py)
+add_test(NAME lorica.analysis.constexpr.compilers
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_constexpr_compilers.py)
+set_tests_properties(lorica.analysis.constexpr.compilers PROPERTIES SKIP_RETURN_CODE 77)

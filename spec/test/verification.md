@@ -68,6 +68,18 @@ Lorica's own sources under `--strict`. The clang-tidy cross-check in
 passed then. Optional: `LORICA_ANALYSIS_SYSTEM_HEADERS=/usr/include/c++/13` adds a
 no-exception, time-bounded run over a whole header tree.
 
+`lorica.analysis.constexpr` (Python unittest with a fake compiler, runs everywhere)
+checks the constexpr subcommand: locator and exclusion reasons, insertion points,
+the strict flags and the stripped ones, diagnostic parsing, no shell and the
+timeout, the copy-of-tree overlay (relative includes, bypass detection, a read-only
+tree left untouched, cleanup), the rejected/accepted/witnessed logic, the fixed
+point, a declaration with its out-of-line definition, gate and baseline.
+`lorica.analysis.constexpr.compilers` runs the design review's 65 cases with g++ 13
+and clang++ 18 at C++17/20/23 against the recorded states and must never report
+`witnessed` where the review's witness fails; it exits 77 (skipped, never passed)
+without those compilers or off Linux. The run over Lorica itself is recorded in
+`spec/plan/2026-11-13-constexpr-report.md` (0 witnessed). MSVC is not executed.
+
 ## Release checks
 
 Required release checks: Windows MSVC x64 and Linux GCC/Clang builds; tests;

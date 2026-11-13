@@ -11,10 +11,21 @@ Optional source analysis: Python 3 standard library only (`tools/lorica_analyze.
 no compiler, clang or package. clang-tidy was used once to validate it and is not a dependency.
 
 Source analysis audit (2026-11-12): reads files as UTF-8 with replacement, refuses
-files over 8 MiB, never executes, imports or edits the analysed code and starts no
-process; writes only the baseline file it is asked to write. Its results are
+files over 8 MiB, never executes, imports or edits the analysed code; writes only the files it is
+asked to write (a baseline, a patch). Only the `constexpr` subcommand starts a
+process (see above). Its results are
 heuristics (no macro expansion, no type resolution) and fail closed: what it cannot
 parse is reported, not guessed.
+
+The `constexpr` subcommand of tools/lorica_analyze.py starts a C++ compiler, and only
+when asked: the compilers named by --compiler or by the entries of --compile-commands.
+Only GCC and Clang are accepted (identified by `--version`; cl and clang-cl are
+refused). Each compile is `-fsyntax-only` on a temporary copy of the analysed tree,
+started with an argument list (no shell), standard input closed, LC_ALL=C and a
+timeout (--timeout, default 120 s), in the unit's own directory; the copy is deleted
+afterwards. The tool itself stays Python standard library only, and every other
+subcommand starts no process. Without --compiler or --compile-commands nothing is
+compiled.
 
 Checked arithmetic and request budgeting have small, stable contracts and use
 standard size types/optional rather than adding a package. No crypto, authentication,

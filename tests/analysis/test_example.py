@@ -24,24 +24,39 @@ def sessions(markdown):
     return steps
 
 
+def matched(actual, expected):
+    """actual, with each line that an expected line ending in `...` starts replaced by it."""
+    want, got = expected.split("\n"), actual.split("\n")
+    if len(want) != len(got):
+        return actual
+    return "\n".join(w if w.endswith("...") and g.startswith(w[:-3]) else g for w, g in zip(want, got))
+
+
 class ReadmeTests(unittest.TestCase):
     def test_console_blocks(self):
         steps = sessions((EXAMPLE / "README.md").read_text(encoding="utf-8"))
         self.assertGreaterEqual(len(steps), 5)
         with tempfile.TemporaryDirectory() as work:
             shutil.copy(EXAMPLE / "sample.cpp", work)
+            for name in ("constexpr_sample.hpp", "constexpr_sample.cpp", "constexpr-witnesses.json"):
+                shutil.copy(EXAMPLE / name, work)
             status = None
             for command, expected in steps:
                 with self.subTest(command=command):
                     if command == "echo $?":
+                        if status is None:
+                            self.skipTest("the command before it was skipped")
                         self.assertEqual("%d\n" % status, expected)
                         continue
                     argv = shlex.split(command)
                     self.assertEqual(argv[:2], ["python3", TOOL])
+                    status = None
+                    if "--compiler" in argv and not shutil.which(argv[argv.index("--compiler") + 1]):
+                        self.skipTest("needs %s, which is not installed" % argv[argv.index("--compiler") + 1])
                     run = subprocess.run([sys.executable, str(ROOT / "tools" / "lorica_analyze.py")] + argv[2:],
                                          cwd=work, capture_output=True, text=True)
                     status = run.returncode
-                    self.assertEqual(run.stdout, expected)
+                    self.assertEqual(matched(run.stdout, expected), expected)
             # The committed baseline is what the README's command writes.
             self.assertEqual(Path(work, "analysis-baseline.json").read_text(),
                              (EXAMPLE / "analysis-baseline.json").read_text())

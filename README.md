@@ -242,6 +242,22 @@ add_test(NAME myapp.complexity COMMAND ${Python3_EXECUTABLE}
     --baseline ${CMAKE_CURRENT_SOURCE_DIR}/analysis-baseline.json ${CMAKE_CURRENT_SOURCE_DIR}/src)
 ```
 
+`constexpr` tries the `constexpr` specifier with GCC or Clang in a temporary copy of
+the tree (never in your files) and reports, per compiler and standard, `rejected`,
+`accepted` (the compiler tolerates it: a necessary condition only, not verified) or
+`witnessed` (a `static_assert` witness you supply compiles with the change and fails
+without it: the only verified state). Without a compiler it only lists the functions
+not declared constexpr and why some are excluded. MSVC is not supported.
+
+```sh
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+python3 tools/lorica_analyze.py constexpr include src --compile-commands build/compile_commands.json \
+    --std 17 --std 20 --witnesses constexpr-witnesses.json --max-witnessed 0
+```
+
+`--max-witnessed 0` fails while a function proven convertible is not declared
+constexpr; `--emit-patch FILE` writes the diff for review (never applied).
+
 See [examples/analysis](examples/analysis/README.md) and the limits in
 [SPEC-LR-ANALYZE](spec/feature/source-analysis.md).
 

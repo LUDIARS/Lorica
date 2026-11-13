@@ -9,10 +9,11 @@ or a baseline.
 import argparse
 import os
 import sys
-from typing import Callable, List, NamedTuple, Tuple
+from typing import Callable, List, NamedTuple, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lorica_analysis import complexity, gate, report, sources  # noqa: E402
+from lorica_analysis import constexpr_cli  # noqa: E402
 from lorica_analysis.extract import Region, SourceFile, analyse_text  # noqa: E402
 
 
@@ -20,6 +21,8 @@ class Command(NamedTuple):
     help: str
     metrics: tuple                      # each gets a --max-<metric> option
     analyse: Callable[[SourceFile], Tuple[List[gate.Entry], List[Region]]]
+    options: Optional[Callable[[argparse.ArgumentParser], None]] = None  # its own options
+    run: Optional[Callable[[argparse.Namespace], int]] = None  # replaces main (needs all files)
 
 
 def _complexity(source: SourceFile):
@@ -32,6 +35,8 @@ def _complexity(source: SourceFile):
 COMMANDS = {
     "complexity": Command("cyclomatic and cognitive complexity, nesting, parameters, NLOC",
                           complexity.METRICS, _complexity),
+    "constexpr": Command(constexpr_cli.HELP, constexpr_cli.METRICS, None,
+                         constexpr_cli.add_options, constexpr_cli.run),
 }
 
 
@@ -51,12 +56,16 @@ def _parser() -> argparse.ArgumentParser:
         sub.add_argument("--strict", action="store_true", help="exit 2 on any unparsed region")
         sub.add_argument("--json", action="store_true", help="JSON report on standard output")
         sub.add_argument("--all", action="store_true", help="list every function in the text report")
+        if command.options:
+            command.options(sub)
     return parser
 
 
 def main(argv=None) -> int:
     args = _parser().parse_args(argv)
     command = COMMANDS[args.command]
+    if command.run:
+        return command.run(args)
     if not args.paths and not args.compile_commands:
         print("error: no input: name files or directories, or --compile-commands", file=sys.stderr)
         return 2
