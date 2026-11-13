@@ -8,6 +8,8 @@ The locator never decides whether a function can be constexpr; the compiler does
     definitions in a source file with external linkage (constexpr implies inline:
     the definition would have to move to a header, which changes linkage and the
     exported symbols);
+  - the canary's place: just inside the body's `{` (GCC refuses _Pragma between a
+    template head and its declaration);
   - the insertion point: after the template head, requires-clause and attributes,
     before the first decl-specifier. Every insertion is checked by extracting the
     mutated text again: the function must gain `constexpr` and nothing else may
@@ -33,6 +35,7 @@ _ATTRIBUTES = frozenset(("alignas", "__attribute__", "__attribute", "__declspec"
 class Candidate(NamedTuple):
     function: Function
     offset: int         # text offset where "constexpr " is inserted
+    canary: int         # text offset just inside the body's `{`, where the canary goes
     hidden: str         # TEMPLATE, MEMBER or ""
 
 
@@ -288,11 +291,12 @@ def locate(source: SourceFile, text: str) -> Located:
         open_ = function.body[0]
         start = _decl_specifiers(tokens, match, _head(tokens, match, open_, function.start_line), open_)
         offset = None if start is None else _offset(text, starts, tokens[start])
-        if offset is None:
+        brace = _offset(text, starts, tokens[open_])
+        if offset is None or brace is None:
             refused.append(Region(function.file, function.start_line, function.line,
                                   "constexpr: no insertion point found"))
         else:
-            candidates.append(Candidate(function, offset, _hidden(source, parents, function)))
+            candidates.append(Candidate(function, offset, brace + 1, _hidden(source, parents, function)))
     candidates, more = _checked(source, text, candidates)
     return Located(candidates, excluded_, already, refused + more)
 
@@ -301,8 +305,8 @@ def _checked(source: SourceFile, text: str, candidates: List[Candidate]):
     """Keep the candidates whose insertion the extractor reads back as intended."""
     if not candidates:
         return candidates, []
-    mutated = analyse_text(source.path, render(text, [(c.offset, probe(0) + "constexpr ")
-                                                      for c in candidates]))
+    mutated = analyse_text(source.path, render(text, [(c.offset, "constexpr ") for c in candidates]
+                                               + [(c.canary, probe(0)) for c in candidates]))
     before = {(f.line, f.name): f.specifiers for f in source.functions}
     after = {(f.line, f.name): f.specifiers for f in mutated.functions}
     tried = {(c.function.line, c.function.name) for c in candidates}
