@@ -176,6 +176,12 @@ if(LORICA_BUILD_TESTS)
                 $<TARGET_FILE:lorica_protection_tests>)
     endif()
 endif()
+# Examples double as demos that cannot rot: with tests enabled they run as
+# lorica.demo.* tests.
+option(LORICA_BUILD_EXAMPLES "Build the examples (run as lorica.demo.* tests with LORICA_BUILD_TESTS)" OFF)
+if(LORICA_BUILD_EXAMPLES)
+    add_subdirectory(examples/contracts)
+endif()
 if(LORICA_BUILD_FUZZER)
     if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
         message(FATAL_ERROR "Lorica fuzzing currently requires Linux Clang")

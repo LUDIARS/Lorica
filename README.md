@@ -107,8 +107,12 @@ barrier, secure allocator, cryptography or authentication is implemented here.
 
 ## Contracts (C++26 emulation)
 
-Deploy one contracts runtime DLL/shared object for the executable and all its plugins.
-Link each consumer to `Lorica::contracts` and include `<lorica/contracts.hpp>`:
+A contract states what holds in a correct program, much as an assertion does, with
+a role (precondition, postcondition, assertion) and an evaluation semantic chosen
+by the build. Link `Lorica::contracts`; deploy its one runtime DLL/shared object
+for the executable and all its plugins.
+
+Inside a function body (`<lorica/contracts.hpp>`):
 
 ```cpp
 int element(std::span<const int> values, std::size_t index) {
@@ -118,10 +122,40 @@ int element(std::span<const int> values, std::size_t index) {
 constexpr int square(int v) { return LORICA_POST_RETURN(v * v, r, r >= 0); }
 ```
 
-Choose the semantic per target: `target_compile_definitions(t PRIVATE
-LORICA_CONTRACT_EVALUATION_SEMANTIC=enforce)` (default; also `observe`, `ignore`,
-`quick_enforce`). Contracts catch bugs; they are not input validation, which must not
-disappear under `ignore`. See [the contracts spec](spec/feature/contracts.md).
+Laid over existing code from outside, without editing it
+(`<lorica/contract_overlay.hpp>`, [overlay](spec/feature/contracts.md#SPEC-LR-CONTRACT-OVERLAY)):
+
+```cpp
+int reserve(int in_stock, int requested);                     // existing, unchanged
+
+constexpr auto checked_reserve = LORICA_CONTRACT(reserve)
+    .pre([](int in_stock, int requested) { return requested >= 0 && requested <= in_stock; },
+         "request is covered by the stock")
+    .post([](int left, int in_stock, int requested) { return left == in_stock - requested; },
+          "what is left is the stock less the request");      // the result comes first
+
+const int left = checked_reserve(in_stock, requested);        // the same call, checked
+```
+
+The same conditions are the function's test. `test` reports instead of handling a
+violation and never makes a call the preconditions refuse:
+
+```cpp
+using lorica::contracts::test_status;
+require(static_cast<bool>(checked_reserve.test(10, 3)));
+const auto refused = checked_reserve.test(10, 11);            // reserve is not called
+require(refused.status == test_status::precondition_failed);
+require(std::string_view(refused.condition) == "request is covered by the stock");
+```
+
+Choose the semantic per target from the build, without editing sources:
+`lorica_set_contract_semantic(my_service enforce)` (the default; also `observe`,
+`quick_enforce`, and `ignore`, which strips the checks and leaves the plain call),
+or for an existing project `-DLORICA_CONTRACT_SEMANTIC=ignore` next to
+`LORICA_TARGETS` with `LoricaInject.cmake`. Contracts catch bugs; they are not
+input validation, which must not disappear under `ignore`. `examples/contracts`
+runs one contract over a correct and a defective implementation as a test table.
+See [the contracts spec](spec/feature/contracts.md).
 
 ## Write-protected variables
 
