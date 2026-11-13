@@ -88,8 +88,9 @@ Counts per configuration (31 tried):
 | rejected | 8 | 5 | 3 | 10 | 10 | 8 |
 | inactive | 1 | 0 | 0 | 1 | 0 | 0 |
 
-Every supplied witness failed (21 witness compiles on g++, 16 on clang++, the others
-not run because the function was rejected there): "non-constant condition for static
+Every supplied witness failed: 36 function-configuration results on g++ and 24 on
+clang++ name a witness that does not compile (where the function was rejected or not
+compiled, the witness is not run): "non-constant condition for static
 assertion", "variable of non-literal type ... only available with -std=c++2b", or a
 call to the non-constexpr `contract_violation` / `sealed_region` constructor. `format_into`
 is inactive in C++17 because no C++17 unit compiles it.
