@@ -31,7 +31,8 @@ if(LORICA_BUILD_PROTECTION)
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 else()
     # Its headers would compile and then fail to link without the library.
-    set(lorica_header_excludes PATTERN sealed_value.hpp EXCLUDE PATTERN sealed_region.hpp EXCLUDE)
+    set(lorica_header_excludes PATTERN sealed_value.hpp EXCLUDE PATTERN sealed_pack.hpp EXCLUDE
+        PATTERN sealed_region.hpp EXCLUDE)
 endif()
 
 # All modules in a process must import the same contracts runtime.
@@ -250,6 +251,7 @@ int main() { const lorica::sealed_value<@type@> value{{}}; return 0; }
             "-DLIBDIR=${CMAKE_INSTALL_LIBDIR}" "-DGENERATOR=${CMAKE_GENERATOR}"
             "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}" "-DCXX_FLAGS=${CMAKE_CXX_FLAGS}" "-DCONFIG=$<CONFIG>"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/protection_consumer.cmake")
+        set_tests_properties(lorica.protection_consumer PROPERTIES RESOURCE_LOCK lorica_build_tree)
     endif()
 endif()
 # Examples double as demos that cannot rot: with tests enabled they run as

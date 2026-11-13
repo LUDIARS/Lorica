@@ -11,6 +11,7 @@
 #include <string>
 #include <system_error>
 #include <unistd.h>
+#include <vector>
 
 namespace {
 // @implements SPEC-LR-VERIFY
@@ -68,6 +69,13 @@ int main() {
         require(permissions_at(mmaps.address) == "r--p" && value.load() == 7);
     }
     require(munmaps.count == 1 && munmaps.address == mmaps.address && munmaps.length == mmaps.length);
+    {
+        // Sealed to the last byte when the region spans several pages.
+        const std::vector<unsigned char> pages(3 * static_cast<std::size_t>(sysconf(_SC_PAGESIZE)), 5);
+        const lorica::detail::sealed_region region(pages.data(), pages.size());
+        const auto* last = static_cast<const unsigned char*>(region.data()) + pages.size() - 1;
+        require(mprotects.length == pages.size() && permissions_at(last) == "r--p" && *last == 5);
+    }
     const unsigned char byte = 9;
     // OS failures throw system_error with the OS code; failed sealing releases the page.
     fail_mmap = ENOMEM;
@@ -76,7 +84,7 @@ int main() {
     fail_mprotect = EACCES;
     try { lorica::detail::sealed_region region(&byte, 1); require(false); }
     catch (const std::system_error& error) { require(error.code() == std::errc::permission_denied); }
-    require(munmaps.count == 2 && munmaps.address == mmaps.address && munmaps.length == mmaps.length);
+    require(munmaps.count == 3 && munmaps.address == mmaps.address && munmaps.length == mmaps.length);
     // The kernel refusing a release for lack of mappings leaves the page read-only.
     {
         lorica::detail::sealed_region region(&byte, 1);
