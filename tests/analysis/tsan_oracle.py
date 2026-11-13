@@ -8,7 +8,8 @@ threads behind a relaxed spin gate (no happens-before between them), each runnin
 its expression 1000 times with `i` as the loop index (`i == 0` selects a one-time
 action, `pause()` lets the other thread go first). `sink()` consumes a value
 through a thread_local volatile, so -O1 cannot delete a racing read. No shared_ptr
-or acq_rel atomic is on the path. ThreadSanitizer must agree with the marker.
+or acq_rel atomic is on the path. Each driver runs up to RUNS times: `race` needs a
+report in one run, `clean` needs none in all of them.
 `not-observable(<reason>)` lines are listed and not run.
 
 Usage: tsan_oracle.py [--compiler g++] [--jobs 2]. Exit 0 all agree, 1 a
@@ -26,6 +27,7 @@ import tempfile
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "shared_state"
 FLAGS = ["-std=c++17", "-O1", "-g", "-fsanitize=thread", "-pthread"]
+RUNS = 5
 PRELUDE = """#include <algorithm>
 #include <atomic>
 #include <cerrno>
@@ -80,13 +82,20 @@ def run(compiler, work, number, source):
     """'race', 'clean' or 'build failed: ...'."""
     cpp, exe = Path(work, "d%d.cpp" % number), Path(work, "d%d" % number)
     cpp.write_text(source, encoding="utf-8")
-    built = subprocess.run([compiler] + FLAGS + [str(cpp), "-o", str(exe)], capture_output=True, text=True)
+    try:
+        built = subprocess.run([compiler] + FLAGS + [str(cpp), "-o", str(exe)], capture_output=True, text=True)
+    except OSError as error:
+        return "build failed: %s" % error
     if built.returncode:
         return "build failed: " + built.stderr.strip().splitlines()[0] if built.stderr else "build failed"
     env = dict(os.environ, TSAN_OPTIONS="halt_on_error=0 report_signal_unsafe=0")
-    ran = subprocess.run([str(exe)], capture_output=True, text=True, env=env, timeout=300)
-    return "race" if "WARNING: ThreadSanitizer" in ran.stderr else "clean" if ran.returncode == 0 else (
-        "failed with exit status %d" % ran.returncode)
+    for _ in range(RUNS):       # a race is seen in any run; clean means clean in every run
+        ran = subprocess.run([str(exe)], capture_output=True, text=True, env=env, timeout=300)
+        if "WARNING: ThreadSanitizer" in ran.stderr:
+            return "race"
+        if ran.returncode:
+            return "failed with exit status %d" % ran.returncode
+    return "clean"
 
 
 def main(argv=None):
