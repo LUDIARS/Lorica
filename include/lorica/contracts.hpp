@@ -204,8 +204,8 @@ post_guard<Semantic, std::decay_t<Predicate>> make_post_guard(Predicate&& predic
 #define LORICA_POST(...) \
     const auto LORICA_DETAIL_CONTRACT_CONCAT(lorica_post_guard_, __COUNTER__) = \
         ::lorica::contracts::detail::make_post_guard<LORICA_DETAIL_CONTRACT_SEMANTIC>( \
-            [&]() -> bool { return ::lorica::contracts::detail::holds(__VA_ARGS__); }, #__VA_ARGS__, \
-            LORICA_DETAIL_CONTRACT_LOCATION)
+            [&]() -> bool { return ::lorica::contracts::detail::holds(__VA_ARGS__); }, \
+            #__VA_ARGS__, LORICA_DETAIL_CONTRACT_LOCATION)
 
 // Postcondition on a result: `return LORICA_POST_RETURN(expr, r, r >= 0);`
 // Parenthesize `expr` if it contains a top-level comma. Usable in constexpr. In every
@@ -213,5 +213,6 @@ post_guard<Semantic, std::decay_t<Predicate>> make_post_guard(Predicate&& predic
 // rvalue once, so a type that cannot be moved cannot pass through it.
 #define LORICA_POST_RETURN(expression, name, ...) \
     ::lorica::contracts::detail::check_result<LORICA_DETAIL_CONTRACT_SEMANTIC>( \
-        expression, [&](const auto& name) -> bool { return ::lorica::contracts::detail::holds(__VA_ARGS__); }, \
+        expression, \
+        [&](const auto& name) -> bool { return ::lorica::contracts::detail::holds(__VA_ARGS__); }, \
         #__VA_ARGS__, LORICA_DETAIL_CONTRACT_LOCATION)
