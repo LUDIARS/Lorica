@@ -53,6 +53,9 @@ the same target property to select a single libc++ mode at generation time.
 
 FORTIFY qualification uses the effective `__USE_FORTIFY_LEVEL` from libc headers.
 Debug, empty and custom configuration names receive no Lorica FORTIFY override.
+FORTIFY checks a copy only where the compiler sees the destination's size at the
+call (the same function after inlining, or an allocator declared with `alloc_size`);
+a buffer handed out by another translation unit or library is not checked.
 Where Lorica selects a FORTIFY level, the libc++ mode or `_GLIBCXX_ASSERTIONS`, its
 ordered undefine/define pair follows the toolchain's flags and replaces earlier
 definitions. C sources receive only the applicable C options; the functions need
