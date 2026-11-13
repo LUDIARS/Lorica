@@ -59,6 +59,9 @@ _JUMPS = frozenset("return break continue throw co_return co_yield goto".split()
 _TRANSPARENT = frozenset("return throw co_return co_yield co_await case new delete else do".split())
 _BUILTIN = frozenset("auto const volatile bool char char8_t char16_t char32_t wchar_t short int "
                      "long signed unsigned float double void".split())
+_STATEMENT_START = frozenset("if for while do switch return case default break continue goto try "
+                             "co_return".split())
+_CLASS_KEYS = frozenset(("class", "struct", "union"))
 _SEPARATORS = frozenset("? : ; = += -= *= /= %= &= |= ^= <<= >>=".split())
 _BODY_AFTER = frozenset(") const noexcept override final mutable & && try".split())
 
@@ -169,6 +172,12 @@ class _Body:
             after = self._close(k + 1) + 1 if self._text(k + 1) == "(" else k + 1
             if after < limit and self._text(after) == "{" and (after > k + 1 or _macro_like(token)):
                 return self.block(after, level)     # MACRO(...) { }: macro control flow is invisible
+            if (after > k + 1 or _macro_like(token)) and (after >= limit or (
+                    self.t[after].line > self.t[after - 1].line and (
+                        self._text(after) in _STATEMENT_START or (after > k + 1 and _macro_like(token)
+                                                                  and self.t[after].kind in (IDENTIFIER, KEYWORD))))):
+                self.expression(k, after, level)    # MACRO or MACRO(...) ending its line without `;`
+                return after
         return self.expression_statement(k, level, limit)
 
     def expression_statement(self, k: int, level: int, limit: int) -> int:
@@ -223,17 +232,22 @@ class _Body:
         return self.block(body, level + 1)
 
     # -- expressions
-    def expression(self, lo: int, hi: int, level: int, parent: str = "") -> None:
-        """Scan lo..hi-1 for ?:, logical operators, lambdas and nested bodies."""
+    def expression(self, lo: int, hi: int, level: int, parent: str = "",
+                   in_class: bool = False) -> None:
+        """Scan lo..hi-1 for ?:, logical operators, lambdas and nested bodies.
+
+        in_class: lo..hi is a local class body, whose member function bodies are
+        statements again."""
         ops: List[Tuple[int, str]] = []
         groups: List[Tuple[int, int, int]] = []    # (open, operators before it, level)
-        nest, angle, k = level, 0, lo
+        nest, angle, k, class_key = level, 0, lo, False
         while k < hi:
             token, text = self.t[k], self.t[k].text
             if token.kind == KEYWORD and text in _NOT_IN_EXPRESSION and not (
                     text == "default" and self._text(k - 1) == "="):
                 raise ParseError("line %d: '%s' inside an expression" % (token.line, text))
             if token.kind != PUNCT:
+                class_key = class_key or (text in _CLASS_KEYS and self._text(k - 1) != "enum")
                 k += 1
                 continue
             if text == "(":
@@ -258,8 +272,8 @@ class _Body:
                 k = self._close(k) + 1
                 continue
             if text == "{":
-                self.braces(k, nest)
-                k = self.m[k] + 1
+                self.braces(k, nest, class_key, in_class)
+                k, class_key = self.m[k] + 1, False
                 continue
             if text in ("&&", "||"):
                 if not (text == "&&" and self._declarator(k)):
@@ -297,17 +311,17 @@ class _Body:
             inherited = "&&" if "&&" in near else "||" if near else parent
             self.expression(open_ + 1, self.m[open_], nest, inherited)
 
-    def braces(self, k: int, level: int) -> None:
+    def braces(self, k: int, level: int, class_body: bool, in_class: bool) -> None:
         end, before = self.m[k], self.t[k - 1]
         requires = before.text == "requires" or (
             before.text == ")" and self.m[k - 1] > 0 and self._text(self.m[k - 1] - 1) == "requires")
         if before.text == "(" and self.m[k - 1] == end + 1 and self._text(end - 1) == ";":
             self.block(k, level)                    # GNU statement expression ({ ...; })
-        elif before.text in _BODY_AFTER and not requires:
+        elif in_class and (before.text in _BODY_AFTER or before.text == "}") and not requires:
             self.nesting = max(self.nesting, level + 1)
             self.block(k, level + 1)                # a local class's member function
-        else:
-            self.expression(k + 1, end, level)      # braced initializer, class body, requires
+        else:                                       # braced initializer, class body, requires
+            self.expression(k + 1, end, level, in_class=class_body)
 
     def _declarator(self, k: int) -> bool:
         """&& declares an rvalue or forwarding reference (T&&, auto&&, Args&&...)."""

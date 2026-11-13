@@ -100,7 +100,6 @@ _MACRO_CONTINUES = _FOLLOWS | {"{", ";", ",", "("}
 _SPECIFIERS = frozenset("constexpr consteval static inline virtual explicit friend".split())
 _SUFFIX_SPECIFIERS = frozenset("const noexcept override final".split())
 _ATTRIBUTES = frozenset(("alignas", "__attribute__", "__attribute", "__declspec", "_Pragma"))
-_REQUIRES_EXPRESSION_AFTER = frozenset("= && || ! requires ? : return ,".split())
 _NOT_SUBSCRIPTED = frozenset(
     "bool char char8_t char16_t char32_t double float int long short signed unsigned "
     "void wchar_t auto this delete operator".split())
@@ -265,8 +264,8 @@ class _Extractor:
             if token.kind == KEYWORD and token.text == "operator":
                 end = self._operator_end(i, hi)
                 if end is not None:
-                    out.append(_Item("op", self._spell(i, end), i, end - 1))
-                    i = end
+                    out.append(_Item("op", self._spell(i, end[0]), i, end[1] - 1))
+                    i = end[1]
                     continue
             if token.text == "<" and out and out[-1].kind == "tok" and (
                     tokens[out[-1].lo].kind == IDENTIFIER or out[-1].text == "template"):
@@ -297,22 +296,29 @@ class _Extractor:
             k += 1
         return None
 
-    def _operator_end(self, i: int, hi: int) -> Optional[int]:
-        """Index of the `(` of the parameter list after `operator ...`, or None."""
+    def _operator_end(self, i: int, hi: int) -> Optional[Tuple[int, int]]:
+        """(end of the name, index of the parameter list's `(`) after `operator`."""
         tokens, k = self.tokens, i + 1
         if k + 1 < hi and tokens[k].text in "([" and self.match[k] == k + 1:
             k += 2                          # operator() and operator[]
         elif k < hi and tokens[k].kind == PUNCT and tokens[k].text != "(":
             k += 1                          # operator<=>, operator<<, ...
         else:                               # conversion, new[], delete, ""_x, co_await
-            while k < hi and tokens[k].text != "(":
+            while k < hi and tokens[k].text != "(" and not self._attribute(k):
                 if tokens[k].text in ("{", ";", "}"):
                     return None
                 if tokens[k].text == "<":
                     end = self._angle_end(k, hi)
                     k = k if end is None else end
                 k += 1
-        return k if k < hi and tokens[k].text == "(" else None
+        name_end = k
+        while k < hi and self._attribute(k):
+            k = self.match[k] + 1           # operator== [[nodiscard]] (...)
+        return (name_end, k) if k < hi and tokens[k].text == "(" else None
+
+    def _attribute(self, k: int) -> bool:
+        return (self.tokens[k].text == "[" and k + 1 < len(self.tokens)
+                and self.tokens[k + 1].text == "[" and self.match[k] > k)
 
     def _spell(self, lo: int, hi: int) -> str:
         pieces = []
@@ -374,7 +380,7 @@ class _Extractor:
         items = self._items(head, brace)
         if items and items[-1].text == "requires" or (
                 len(items) >= 2 and items[-1].kind == "(" and items[-2].text == "requires"
-                and (len(items) == 2 or items[-3].text in _REQUIRES_EXPRESSION_AFTER)):
+                and (len(items) == 2 or self._in_expression(items[-3]))):
             return "requires", None
         sig, template = self._strip(items)
         if not sig:
@@ -389,9 +395,11 @@ class _Extractor:
             return "linkage", None
         keys = [k for k, t in enumerate(texts) if t in ("class", "struct", "union")
                 and words[k].kind == KEYWORD and (k == 0 or texts[k - 1] != "enum")]
+        bases = next((k for k in range(keys[0] + 1, len(sig)) if texts[k] == ":"), len(sig)) \
+            if keys else 0
         if keys and "=" not in texts and not any(
                 sig[k].kind == "(" and not _macro_like(words[k - 1])
-                for k in range(keys[0] + 1, len(sig))):
+                for k in range(keys[0] + 1, bases)):
             return "class", self._class_name(sig[keys[0] + 1:])
         if "enum" in texts and "(" not in texts:
             return "enum", None
@@ -427,6 +435,11 @@ class _Extractor:
         if ":" in rest and tokens[brace - 1].text not in (")", "}", "..."):
             return "mem-init", None         # a brace in a constructor's initializer list
         return "function", (at, sig, template)
+
+    def _in_expression(self, item: _Item) -> bool:
+        """`requires (` after this item starts a requires-expression, not a clause."""
+        return item.kind == "tok" and (item.text in ("requires", "return") or (
+            self.tokens[item.lo].kind == PUNCT and item.text not in (">", ">>")))
 
     def _namespace_name(self, rest: List[_Item]) -> Optional[str]:
         parts, expect_name = [], True
@@ -477,7 +490,8 @@ class _Extractor:
             prefix = [item.text for item in sig[:first] if item.kind == "tok"]
             last = scopes[-1].name if in_class else None
             short = name.split("::")
-            if not prefix and len(short) == 1 and sig[at - 1].kind == "tok" and name != last:
+            if (not prefix and len(short) == 1 and sig[at - 1].kind == "tok" and name != last
+                    and not name.startswith("~")):
                 kind, name = "macro-function", self._spell(sig[at - 1].lo, sig[at].hi + 1)
                 parameters = 0
             else:
