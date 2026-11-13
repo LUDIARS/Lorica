@@ -82,7 +82,7 @@ FAIL shared.cpp:15 registry::hits_: inconsistent-locking 1 > 0
     (member int: synchronization inconsistent, inconsistent-locking; accesses: 21 rmw {m_} add; 22 read {} peek)
 result: fail, findings 2, suppressed 0
 $ echo $?
-0
+1
 ```
 
 `failures` needs `std::atomic<long>` or a lock; `peek()` must take `m_` as `add()`
