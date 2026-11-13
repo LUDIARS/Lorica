@@ -11,6 +11,7 @@ target_include_directories(lorica_boundary INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 include(cmake/LoricaHardening.cmake)
+include(cmake/LoricaContracts.cmake)
 
 option(LORICA_BUILD_PROTECTION "Build OS read-only scalar protection" ON)
 if(LORICA_BUILD_PROTECTION)
@@ -158,6 +159,13 @@ if(LORICA_BUILD_TESTS)
                     $<TARGET_FILE:${target}> ${semantic} ${harness_form})
         endforeach()
     endforeach()
+    # The semantic chosen from the build, by function and by injection, over
+    # sources that never change.
+    add_test(NAME lorica.contracts.semantic_switch COMMAND "${CMAKE_COMMAND}"
+        "-DLORICA_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/contract_semantic_switch/$<CONFIG>"
+        "-DGENERATOR=${CMAKE_GENERATOR}" "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}" "-DCONFIG=$<CONFIG>"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/contract_semantic_switch.cmake")
     if(LORICA_BUILD_PROTECTION)
         add_executable(lorica_protection_tests tests/protection.cpp)
         target_link_libraries(lorica_protection_tests PRIVATE Lorica::protection)
@@ -189,5 +197,5 @@ write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/LoricaConfigVersion
     VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/LoricaConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/LoricaConfigVersion.cmake
-    cmake/LoricaHardening.cmake cmake/LoricaInject.cmake
+    cmake/LoricaHardening.cmake cmake/LoricaContracts.cmake cmake/LoricaInject.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Lorica)

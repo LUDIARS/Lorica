@@ -57,6 +57,15 @@ mode: which definition the linker keeps is unspecified, so use one per program.
 | LR-CONTRACT-08 | In constant evaluation a violated contract makes the expression ill-formed |
 | LR-CONTRACT-09 | `LORICA_POST` is skipped when the scope exits by exception |
 | LR-CONTRACT-10 | `-fno-exceptions` builds compile and enforce; no evaluation-exception path exists |
+| LR-CONTRACT-11 | A target's semantic is selectable from the build without editing its sources, replacing a definition the target already has; an unknown semantic or a second, different one for the same target fails configuration |
+
+`lorica_set_contract_semantic(<target> <semantic>)` (`cmake/LoricaContracts.cmake`,
+loaded with the package) sets it for a target's C++ sources, in-body macros and
+overlays alike. External injection does the same for every listed target with
+`-DLORICA_CONTRACT_SEMANTIC=<semantic>` next to `LORICA_TARGETS`
+(`cmake/LoricaInject.cmake`), so a project's contracts are stripped (`ignore`) or
+switched back on from the command line. A translation unit built with `ignore`
+references nothing in the runtime library.
 
 Constant evaluation uses `std::is_constant_evaluated` (C++20) or the
 `__builtin_is_constant_evaluated` builtin (GCC, Clang, MSVC 19.25+) in C++17. Without
@@ -168,6 +177,11 @@ plus a delegate that returns under `enforce`. `examples/contracts` is the demo:
 one contract over a correct and a defective implementation, run as a test table,
 built with `enforce` and with `ignore` (both runs must report every outcome as
 expected).
+
+`tests/contract_semantic_switch.cmake` (LR-CONTRACT-11) configures, builds and runs
+one unchanging project whose program prints how many predicates ran: the default,
+the function, injection over a definition the project makes itself under warnings
+as errors, an unknown semantic and two different ones for one target.
 
 `tests/contract_modules` also builds against an installed Lorica package. Two
 shared libraries independently set, read and reset the handler and raise observe
