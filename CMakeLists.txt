@@ -164,7 +164,7 @@ int main(int, char** argv) {
         set(lorica_fortified "$<AND:$<CONFIG:Release,RelWithDebInfo,MinSizeRel>,$<NOT:$<BOOL:${WIN32}>>>")
         if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=[^ ]*address")
             # AddressSanitizer reports the overflowing copy before glibc's check can.
-            message(STATUS "Lorica: lorica.hardening_stops does not check the FORTIFY stop under AddressSanitizer")
+            message(STATUS "Lorica: lorica.hardening_stops.fortify not run under AddressSanitizer")
             set(lorica_fortified 0)
         endif()
         add_executable(lorica_hardening_tests tests/hardening.cpp)
@@ -176,11 +176,16 @@ int main(int, char** argv) {
         lorica_harden_target(lorica_hardening_tests)
         add_test(NAME lorica.hardening_stops
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/hardening_fault.py
-                $<TARGET_FILE:lorica_hardening_tests>
-                $<IF:${lorica_fortified},fortified,unfortified>)
+                $<TARGET_FILE:lorica_hardening_tests> stops)
+        # Skipped (77) in a configuration without the FORTIFY stop, never passed.
+        add_test(NAME lorica.hardening_stops.fortify
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/hardening_fault.py
+                $<TARGET_FILE:lorica_hardening_tests> $<IF:${lorica_fortified},fortify,fortify-unchecked>)
+        set_tests_properties(lorica.hardening_stops.fortify PROPERTIES SKIP_RETURN_CODE 77)
     else()
         message(STATUS "Lorica: lorica.hardening_stops not run: ${lorica_extended_REASON}")
         lorica_add_disabled_test(lorica.hardening_stops)
+        lorica_add_disabled_test(lorica.hardening_stops.fortify)
     endif()
     if(NOT WIN32)
         # Control: the harness must reject a child that exits with an error instead
@@ -189,7 +194,7 @@ int main(int, char** argv) {
         file(WRITE "${child}" "#!/bin/sh\n[ $# -eq 0 ]\n")
         file(CHMOD "${child}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
         add_test(NAME lorica.hardening_stops.harness_control
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/hardening_fault.py "${child}" unfortified)
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/hardening_fault.py "${child}" stops)
         set_tests_properties(lorica.hardening_stops.harness_control PROPERTIES
             PASS_REGULAR_EXPRESSION "--element was not stopped by the extended profile \\(exit 1\\)")
     endif()
