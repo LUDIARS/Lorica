@@ -21,14 +21,20 @@ build-fuzz/lorica_boundary_fuzz -max_total_time=60
 
 Boundary coverage includes SIZE_MAX/zero/exact-end arithmetic; null/empty/exact-end
 views; huge offsets; each budget dimension; unchanged state on rejection; exact
-depth limit. Tests use explicit abort checks so Release cannot disable assertions.
+depth limit. `lorica.boundary` is built as strict C++17. A view shorter than its
+maximum over an exact-size constant array proves at compile time that `at` does
+not read past the view; a partial charge is checked in every dimension; the budget
+must not be copyable. Tests use explicit abort checks so Release cannot disable
+assertions.
 Fuzzing supplements these cases; it cannot prove absence of vulnerabilities.
 
 ## Checked APIs, extended profile and unsafe API rejection
 
 | Test | Checks |
 | --- | --- |
-| `lorica.checked.cxx20`, `lorica.checked.cxx23` | `tests/checked.cpp` as C++20 and as C++23: integer, text and reader contracts as compile-time and run-time checks; every pair of 8-bit operands against the exact result in a wider type; that bool/character types, mixed operand types and explicit template arguments (also next to `byte_view.hpp`'s `size_t` overloads), temporary and read-only destinations do not compile; array sources by extent, overlapping copies, a throwing formatter. Built with the unsafe API rejection and the extended profile where supported |
+| `lorica.checked.cxx20`, `lorica.checked.cxx23` | `tests/checked.cpp` as C++20 and as C++23: integer, text and reader contracts as compile-time and run-time checks; every pair of 8-bit operands against the exact result in a wider type, and boundary cases of 32- and 64-bit types; that bool/character types, mixed operand types and explicit template arguments for all seven binary functions, `narrow` and `saturate_cast` (also next to `byte_view.hpp`'s `size_t` overloads), temporary and read-only destinations, arrays of unknown bound, `nullptr` and a temporary container for `byte_reader` do not compile; array sources by extent, a null pointer source, overlapping copies, formatted output holding a terminator, a throwing formatter, 4- and 8-byte reads. Built with the unsafe API rejection and the extended profile where supported |
+| `lorica.checked.format.cxx20`, `lorica.checked.format.cxx23` | The same executables with an argument: pass where the library defines `__cpp_lib_format`, otherwise reported as skipped (exit 77), so the `format_into` checks are never counted as passed without running |
+| `lorica.checked.runtime_format` | `tests/run_build_probe.cmake` builds a `format_into` call with a run-time `std::string` format, which must fail with "constant expression" (CWE-134); skipped where the library has no `<format>` |
 | `lorica.profiles.*` | Native Linux Ninja/Makefile consumers: configure, compile and compare C/C++ commands for baseline, direct EXTENDED, repeated calls and promotion. Simulated missing flag, lower libc level and unknown CPU, plus a real Release `-O0` override, check baseline continuation and explicit EXTENDED refusal. Multi-config commands are checked separately per generated configuration. |
 | `lorica.hardening_stops` | `tests/hardening.cpp` built with EXTENDED, driven by `tests/hardening_fault.py`: an in-range run exits 0; an out-of-range `operator[]` and an empty `optional`'s value must stop the child (POSIX SIGABRT/SIGILL/SIGTRAP, Windows 0xC0000409). In optimized Linux configurations the build must have `_FORTIFY_SOURCE` 3 (checked at compile time) and a `memcpy` past a heap buffer of run-time size, which only level 3 sees, must stop with glibc's "buffer overflow detected"; a stop by the stack protector or the heap's own checks does not count. A normal exit, another error or a timeout fails |
 | `lorica.unsafe_api.*` | `tests/unsafe_api_probes.cmake`: real targets with `lorica_deprecate_unsafe_apis` applied, each built by `tests/run_build_probe.cmake`, which judges by exit code and compiler output, not generator text. Bounded code must build; a direct `std::strcpy` call, a function pointer to it, a macro alias of `std::sprintf`, a parenthesized `::wcscat`, a `-D` alias of `std::strcat` and `std::vsprintf` must fail with the deprecation diagnostic; an earlier `-include` of a C library header must fail with the header's order error. The probes live in CMake, not a C++ source, because they are deliberately unsafe |

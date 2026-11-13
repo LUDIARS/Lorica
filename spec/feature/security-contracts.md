@@ -123,7 +123,8 @@ force-included header.
 `examples/consumer` is an independent CMake project. Its `main` uses a live
 two-byte array, checks multiplication and a request budget before constructing
 a bounded view, and returns failure on rejected input. It consumes the installed
-`Lorica::boundary` target. External `LoricaInject.cmake` applies protection to its
+`Lorica::boundary` and `Lorica::protection` targets (it shows a sealed limit), so
+it needs an install built with protection. External `LoricaInject.cmake` applies protection to its
 `lorica_consumer` executable (`-DLORICA_PROFILE=extended` and
 `-DLORICA_DEPRECATE_UNSAFE_APIS=ON` select the extended profile and the unsafe API
 rejection); the example does not claim service deployment.

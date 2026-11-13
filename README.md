@@ -65,11 +65,12 @@ With C++20, the checked APIs cover the rest of a typical parser:
 #include <lorica/bounded_text.hpp>
 #include <lorica/byte_reader.hpp>
 #include <lorica/checked_integer.hpp>
+#include <cstdint>
 
 lorica::byte_reader in(packet);                   // std::span<const std::byte>
 const auto count = in.read_big_endian<std::uint32_t>();
 const auto name = in.read_prefixed<std::uint16_t, std::endian::big>();
-const auto total = count ? lorica::checked_multiply(*count, record_size) : std::nullopt;
+const auto total = count ? lorica::checked_multiply(*count, record_size) : std::nullopt; // record_size is std::uint32_t: both operands have one type
 char label[32];
 if (!name || !total || !lorica::format_into(label, "{} records", *count)) return reject_request();
 ```
@@ -96,6 +97,9 @@ double-free, invalid pointers, type confusion, or bypasses through raw pointers.
 It allocates/frees no memory. Budgets are request-local and are not thread-safe.
 Charges must precede work, include decompressed output and nested allocations,
 and use the same budget throughout the request. Depth must be supplied truthfully.
+The `size_t` functions of `checked_size.hpp` take operands converted by the
+language rules, so a negative or wider value is not detected; use `narrow` from
+`checked_integer.hpp`, or `-Wconversion -Wsign-conversion`.
 Timeouts, concurrency limits and authentication remain service responsibilities.
 
 Hardening supports Windows MSVC-compatible toolchains and Linux GCC/Clang.

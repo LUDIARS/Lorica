@@ -6,6 +6,8 @@
 #include <lorica/checked_integer.hpp>
 #include <array>
 #include <bit>
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
@@ -27,12 +29,6 @@ template<class D>
 concept copies_into = requires(D&& destination) {
     lorica::copy_string(std::forward<D>(destination), "x");
 };
-template<class A, class B>
-concept adds = requires(A a, B b) { lorica::checked_add(a, b); };
-template<class A, class B>
-concept subtracts_as_size = requires(A a, B b) { lorica::checked_subtract<std::size_t>(a, b); };
-template<class A, class B>
-concept saturates = requires(A a, B b) { lorica::saturating_multiply(a, b); };
 template<class S>
 concept copies_from = requires(std::array<char, 8>& out, const S& source) { lorica::copy_string(out, source); };
 
@@ -42,14 +38,39 @@ static_assert(!lorica::checked_integral<bool> && !lorica::checked_integral<char>
               !lorica::checked_integral<const bool>);
 static_assert(lorica::checked_integral<signed char> && lorica::checked_integral<unsigned char> &&
               lorica::checked_integral<std::int64_t> && lorica::checked_integral<std::size_t>);
-// Mixed operand types and explicit template arguments are refused, so -1 never
-// becomes SIZE_MAX silently, even next to checked_size.hpp's size_t overloads.
-static_assert(adds<int, int> && adds<std::size_t, std::size_t> && !adds<std::size_t, int> &&
-              !adds<int, long> && !adds<bool, bool> && !adds<char, char> && !adds<std::uint32_t, int>);
-static_assert(!subtracts_as_size<std::size_t, int> && !subtracts_as_size<std::size_t, std::size_t>);
-static_assert(saturates<long, long> && !saturates<std::uint32_t, int>);
+// Mixed operand types and explicit template arguments are refused for every binary
+// function, so -1 never becomes SIZE_MAX silently, even next to checked_size.hpp's
+// size_t overloads (checked_add and checked_multiply have one).
+#define LORICA_PROBE(name) \
+    template<class A, class B> concept calls_##name = requires(A a, B b) { lorica::name(a, b); }; \
+    template<class A, class B> \
+    concept calls1_##name = requires(A a, B b) { lorica::name<std::size_t>(a, b); }; \
+    template<class A, class B> \
+    concept calls2_##name = requires(A a, B b) { lorica::name<std::size_t, std::size_t>(a, b); }; \
+    static_assert(calls_##name<std::size_t, std::size_t> && calls_##name<int, int>); \
+    static_assert(!calls_##name<std::size_t, int> && !calls_##name<int, std::size_t> && \
+                  !calls_##name<int, long> && !calls_##name<std::uint32_t, int> && \
+                  !calls_##name<bool, bool> && !calls_##name<char, char>); \
+    static_assert(!calls1_##name<std::size_t, int> && !calls1_##name<std::size_t, std::size_t> && \
+                  !calls2_##name<std::size_t, int> && !calls2_##name<std::size_t, std::size_t>);
+LORICA_PROBE(checked_add) LORICA_PROBE(checked_subtract) LORICA_PROBE(checked_multiply)
+LORICA_PROBE(checked_divide) LORICA_PROBE(saturating_add) LORICA_PROBE(saturating_subtract)
+LORICA_PROBE(saturating_multiply)
+#undef LORICA_PROBE
+// The conversions take their source type by deduction only.
+template<class V>
+concept narrows_explicitly = requires(V v) { lorica::narrow<unsigned, unsigned>(v); };
+template<class V>
+concept saturates_explicitly = requires(V v) { lorica::saturate_cast<unsigned, unsigned>(v); };
+static_assert(!narrows_explicitly<int> && !saturates_explicitly<int>);
+// An array of unknown bound has no extent to search, and nullptr is no string.
 static_assert(copies_from<char[4]> && copies_from<std::string> && copies_from<const char*> &&
-              !copies_from<wchar_t[4]> && !copies_from<int>);
+              !copies_from<wchar_t[4]> && !copies_from<int> && !copies_from<char[]> &&
+              !copies_from<std::nullptr_t>);
+// A temporary container would be destroyed before the reader's first read.
+static_assert(!std::constructible_from<lorica::byte_reader, std::vector<std::byte>> &&
+              std::constructible_from<lorica::byte_reader, std::vector<std::byte>&> &&
+              std::constructible_from<lorica::byte_reader, std::span<const std::byte>>);
 // A temporary or read-only destination would lose the result.
 static_assert(copies_into<std::array<char, 4>&> && copies_into<std::span<char>>);
 static_assert(!copies_into<std::array<char, 4>> && !copies_into<const std::array<char, 4>&> &&
@@ -92,6 +113,20 @@ constexpr bool integers() {
     return ok;
 }
 static_assert(integers());
+// Unsigned types of int rank and wider and 64-bit signed types through the
+// templates, where integer promotion no longer hides a wrap.
+static_assert(!lorica::checked_add(limits<unsigned>::max(), 1u) &&
+              !lorica::checked_add(limits<unsigned long long>::max(), 1ull) &&
+              !lorica::checked_add(limits<unsigned long>::max(), 1ul) &&
+              lorica::checked_add(limits<unsigned>::max() - 1u, 1u) == limits<unsigned>::max());
+static_assert(!lorica::checked_subtract(0u, 1u) && !lorica::checked_subtract(std::size_t{4}, std::size_t{5}) &&
+              !lorica::checked_subtract(0ull, 1ull) && lorica::saturating_subtract(std::size_t{4}, std::size_t{5}) == 0);
+static_assert(!lorica::checked_multiply(1ull << 32, 1ull << 32) &&
+              lorica::checked_multiply(0xFFFFFFFFull, 0x100000001ull) == limits<unsigned long long>::max() &&
+              lorica::saturating_multiply(1ull << 63, 2ull) == limits<unsigned long long>::max());
+static_assert(!lorica::checked_add(limits<long long>::max(), 1ll) && !lorica::checked_add(limits<long long>::min(), -1ll) &&
+              !lorica::checked_add(limits<long>::max(), 1l) &&
+              lorica::checked_add(limits<long long>::min(), limits<long long>::max()) == -1ll);
 
 // @implements SPEC-LR-VERIFY
 constexpr bool text() {
@@ -136,6 +171,9 @@ constexpr bool text() {
     std::array<char, 4> span_backing{};
     ok = ok && lorica::copy_string(std::span<char>(span_backing).first(2), "a").value() == 1;
     ok = ok && !lorica::copy_string(std::span<char>(span_backing).first(2), "ab");
+    const char* null_text = nullptr;
+    ok = ok && lorica::copy_string(buffer, "ab").value() == 2;
+    ok = ok && !lorica::copy_string(buffer, null_text) && buffer[0] == '\0';
     return ok;
 }
 static_assert(text());
@@ -176,6 +214,31 @@ constexpr bool reader() {
 }
 static_assert(reader());
 
+constexpr std::array<std::byte, 8> wide_bytes{std::byte{0x80}, std::byte{0x01}, std::byte{0x02}, std::byte{0x03},
+    std::byte{0x04}, std::byte{0x05}, std::byte{0x06}, std::byte{0x07}};
+
+// Four- and eight-byte integers in both orders, and a skip that really advances.
+// @implements SPEC-LR-VERIFY
+constexpr bool reader_wide() {
+    bool ok = true;
+    lorica::byte_reader a{std::span<const std::byte>(wide_bytes)};
+    ok = ok && a.read_big_endian<std::uint32_t>().value() == 0x80010203u;
+    ok = ok && a.read_little_endian<std::uint32_t>().value() == 0x07060504u;
+    lorica::byte_reader b{std::span<const std::byte>(wide_bytes)};
+    ok = ok && b.read_big_endian<std::int32_t>().value() == limits<std::int32_t>::min() + 0x10203;
+    lorica::byte_reader c{std::span<const std::byte>(wide_bytes)};
+    ok = ok && c.read_big_endian<std::uint64_t>().value() == 0x8001020304050607ull;
+    lorica::byte_reader d{std::span<const std::byte>(wide_bytes)};
+    ok = ok && d.read_little_endian<std::int64_t>().value() == 0x0706050403020180ll;
+    lorica::byte_reader s{std::span<const std::byte>(packet)};
+    ok = ok && s.skip(4) && s.offset() == 4 && s.remaining() == 7 && s.read_big_endian<std::int8_t>().value() == -1;
+    // A const-qualified type reads like the unqualified one.
+    lorica::byte_reader e{std::span<const std::byte>(packet)};
+    ok = ok && e.read_big_endian<const std::uint16_t>().value() == 0x1234;
+    return ok;
+}
+static_assert(reader_wide());
+
 // Every pair of 8-bit operands against the exact result computed in a wider type.
 // @implements SPEC-LR-VERIFY
 template<class T>
@@ -207,10 +270,15 @@ bool exhaustive() {
 } // namespace
 
 // @implements SPEC-LR-VERIFY
-int main() {
+int main([[maybe_unused]] int argc, char**) {
+#if !defined(__cpp_lib_format)
+    // lorica.checked.format.* passes an argument: without <format> it is reported
+    // as skipped (77), not as passed.
+    if (argc > 1) return 77;
+#endif
     // Every constant check also runs at run time, with the extended profile's
     // hardened standard library and zero-initialized automatic variables.
-    require(integers() && text() && reader());
+    require(integers() && text() && reader() && reader_wide());
     require(exhaustive<std::int8_t>() && exhaustive<std::uint8_t>());
 
     std::vector<char> heap(8, 'x');
@@ -227,6 +295,8 @@ int main() {
     require(!lorica::format_into(tiny, "{}", 0) && tiny[0] == '\0');
     std::array<char, 0> none{};
     require(!lorica::format_into(none, "{}", 0));
+    // Output holding a terminator would be a shortened C string.
+    require(!lorica::format_into(formatted, "{}.txt", std::string("a\0", 2)) && formatted[0] == '\0');
 #if defined(__cpp_exceptions) || defined(_CPPUNWIND)
     // A formatter that throws leaves an empty string behind, not partial output.
     std::array<char, 16> partial{};
