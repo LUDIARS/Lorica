@@ -13,6 +13,7 @@ decides from FAKE_* markers in comments:
   FAKE_NEEDS(g)     an error while g's line has no constexpr (a call to g)
   FAKE_GARBAGE      the compiler exits 1 with no diagnostic
   FAKE_BROKEN       an error with or without constexpr (the unit never compiles)
+  FAKE_SYNTAX       constexpr on this line is a syntax error (a misplaced specifier)
   FAKE_DECL(f)      a separate declaration of f: a definition with constexpr and this
                     line without it is a "differs in 'constexpr'" error
 A witness `static_assert(f(...))` passes when f's line holds constexpr and
@@ -76,6 +77,8 @@ class FakeCompiler:
             flags = argv[argv.index("-Werror=invalid-constexpr"):] if "-Werror=invalid-constexpr" in argv else []
             if "FAKE_GARBAGE" in text:
                 return 1, "the compiler crashed\n"
+            if "FAKE_SYNTAX" in text:
+                errors.append(where + "expected unqualified-id before 'constexpr'")
             if "FAKE_REJECT" in text:
                 errors.append(where + "fake rejection")
             if "FAKE_EXTENSION" in text and "-pedantic-errors" in argv and "-fpermissive" not in argv:
@@ -156,6 +159,7 @@ class LocatorTests(unittest.TestCase):
             "guard::guard": ("explicit guard", TEMPLATE),           # member of a class template
             "guard::~guard": ("~guard", TEMPLATE),
             "read": ("T read", TEMPLATE),                           # after template<> requires [[]]
+            "c_api": ("inline int c_api", ""),                      # after extern "C"
             "unexplained": ("int unexplained", ""),                 # a suppression needs a reason
             "one": ("int one", ""), "two": ("int two", ""),         # two definitions on one line
         })
@@ -501,6 +505,13 @@ class TrialTests(unittest.TestCase):
         status, data, _ = self.run_json()
         self.assertEqual(status, 2)
         self.assertEqual(self.states(data)["crash"]["g++ c++17"][0], "error")
+
+    def test_syntax_error_is_a_tool_error_not_a_rejection(self):
+        self.write("include/lib/b.hpp", "int odd(int a) { return a; } // FAKE_SYNTAX\n")
+        status, data, _ = self.run_json()
+        self.assertEqual(status, 2)
+        self.assertEqual(self.states(data)["odd"]["g++ c++17"][0], "error")
+        self.assertIn("the inserted specifier broke the syntax of odd", data["errors"][0])
 
     def test_gate_and_baseline(self):
         status, data, _ = self.run_json("--max-witnessed", "0")

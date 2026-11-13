@@ -11,8 +11,8 @@ instantiation contexts); that candidate is rejected with the error as its first
 diagnostic and the units that compiled it are recompiled, until no error is
 left (a fixed point: dropping one candidate can reject a caller). A "differs in
 'constexpr'" redeclaration error adds the specifier to that declaration too, when
-it is in an analysed file. An error no candidate holds is a tool error for the
-candidates of that unit.
+it is in an analysed file. An error no candidate holds, and a syntax error
+("expected ...", a misplaced specifier), are tool errors, never rejections.
 
 Results: rejected (first diagnostic), accepted (the compiler tolerates the
 specifier: a necessary condition only), witnessed. A user witness for an accepted
@@ -33,6 +33,7 @@ from .extract import SourceFile
 from .lexer import tokenize
 
 REJECTED, ACCEPTED, WITNESSED, INACTIVE, ERROR = "rejected", "accepted", "witnessed", "inactive", "error"
+_SYNTAX = re.compile(r"expected ")
 _REDECLARED = re.compile(r"differs in .constexpr.|follows non-constexpr declaration")
 
 
@@ -192,11 +193,17 @@ class _Run:
                         refixed.add(fixed)
                         attributed = True
                         continue
+                    syntax = _SYNTAX.match(d.message)   # a misplaced specifier: never "rejected"
                     for i in self._owners(d, active):
                         attributed = True
                         if i not in dropped:
-                            self.results[i] = Result(REJECTED, _where(d.file, d.line, d.message))
+                            self.results[i] = Result(ERROR if syntax else REJECTED, (
+                                "tool error, the insertion broke the syntax: " if syntax else "")
+                                + _where(d.file, d.line, d.message))
                             dropped.add(i)
+                            if syntax:
+                                self.errors.append("%s: the inserted specifier broke the syntax of %s: %s" % (
+                                    self.configuration.label, self.candidates[i][1].function.name, d.message))
                 if not attributed:
                     self.usable(units[k], status, output, "an error no candidate holds")
                     for i in seen[k] & active:

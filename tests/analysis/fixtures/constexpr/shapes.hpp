@@ -43,6 +43,7 @@ template <class T>
 [[nodiscard]] T read() { return T{}; }
 
 auto twice = [](int x) { return 2 * x; };
+extern "C" inline int c_api(int a) { return a; }
 
 int quiet(int a) { return a; } // lorica-analyze: ignore(constexpr) kept as a run-time function
 int unexplained(int a) { return a; } // lorica-analyze: ignore(constexpr)

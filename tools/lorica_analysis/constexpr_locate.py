@@ -10,8 +10,8 @@ The locator never decides whether a function can be constexpr; the compiler does
     exported symbols);
   - the canary's place: just inside the body's `{` (GCC refuses _Pragma between a
     template head and its declaration);
-  - the insertion point: after the template head, requires-clause and attributes,
-    before the first decl-specifier. Every insertion is checked by extracting the
+  - the insertion point: after the template head, requires-clause, attributes and
+    `extern "C"`, before the first decl-specifier. Every insertion is checked by extracting the
     mutated text again: the function must gain `constexpr` and nothing else may
     change, otherwise the function is refused (an unparsed region), never guessed;
   - hidden by default: templates (and members of class templates), and members of
@@ -22,7 +22,7 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from .extract import Function, Region, SourceFile, analyse_text
 from .gate import suppressions
-from .lexer import IDENTIFIER, KEYWORD, PUNCT, Token
+from .lexer import IDENTIFIER, KEYWORD, PUNCT, STRING, Token
 
 EXTERNAL = ("defined in a source file with external linkage: constexpr implies inline, so the "
             "definition would have to move to a header, which changes linkage and exported symbols")
@@ -174,6 +174,8 @@ def _decl_specifiers(tokens: List[Token], match: List[int], k: int, end: int) ->
             k = match[k] + 1
         elif token.text in _ATTRIBUTES and following.text == "(" and match[k + 1] > k:
             k = match[k + 1] + 1
+        elif token.text == "extern" and following.kind == STRING:
+            k += 2                                  # extern "C" int f()
         else:
             return k
     return None
