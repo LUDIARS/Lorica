@@ -18,7 +18,7 @@ from . import constexpr_compiler as compiler, gate, report, sources
 from .constexpr_compiler import RANK, ToolError
 from .constexpr_locate import EXTERNAL, locate, render
 from .constexpr_overlay import Overlay
-from .constexpr_trial import ACCEPTED, REJECTED, WITNESSED, Configuration, Trial, run_trial
+from .constexpr_trial import ACCEPTED, INACTIVE, REJECTED, WITNESSED, Configuration, Trial, run_trial
 from .extract import HEADER_EXTENSIONS, Region, analyse_text
 
 METRICS = ("witnessed", "accepted")
@@ -125,7 +125,8 @@ def verdict(states) -> str:
         return "witnessed on some configurations only"
     if ACCEPTED in states:
         return "accepted at most (not verified)"
-    return "rejected everywhere" if states == {REJECTED} else "not decided everywhere"
+    return {frozenset((REJECTED,)): "rejected everywhere", frozenset((INACTIVE,)): "inactive in every configuration"
+            }.get(frozenset(states), "not decided")
 
 
 def _text(args, located, order, trials, why_not: str, keys: List[str], unused: List[str]) -> List[str]:
@@ -239,8 +240,8 @@ def run(args) -> int:
             entry.metrics[metric] = sum(t.results.get(i, (None,))[0] == state for t in trials)
     if any(t.results.get(i, ("",))[0] == "error" for t in trials for i in range(len(order))) and not errors:
         errors.append("a candidate could not be decided")
-    if not trials:
-        entries = []
+    if not trials:      # nothing measured: no metric, so no finding and no baseline value
+        entries = [e._replace(metrics={}) for e in entries]
     thresholds = {m: getattr(args, "max_" + m) for m in METRICS if getattr(args, "max_" + m) is not None}
     baseline_root = os.path.dirname(os.path.abspath(args.baseline)) if args.baseline else ""
     findings, improved = gate.evaluate(args.command, entries, thresholds, baseline, baseline_root)

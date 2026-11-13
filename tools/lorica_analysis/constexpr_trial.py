@@ -74,11 +74,11 @@ class _Run:
     def __init__(self, configuration, candidates, files, overlay, witnesses, jobs, timeout, execute):
         self.configuration, self.candidates, self.files = configuration, candidates, files
         self.overlay, self.witnesses, self.jobs, self.timeout = overlay, witnesses, jobs, timeout
-        self.execute = execute
+        self.execute = execute or compiler.execute     # looked up per run: tests replace it
         self.fixups: Dict[int, List[Tuple[str, int]]] = {}
         self.results: Dict[int, Result] = {}
         self.errors: List[str] = []
-        self.removed: Set[str] = set()
+        self.removed: Dict[str, None] = {}      # in order of appearance
         self.touched = {path for path, _ in candidates}
 
     def write(self, active: Set[int]) -> None:
@@ -95,7 +95,7 @@ class _Run:
     def argv(self, unit: compiler.Unit, source: Optional[str] = None) -> List[str]:
         argv, removed = compiler.strict_command(self.configuration.toolchain, unit, self.configuration.std,
                                                 self.overlay.to_copy, source)
-        self.removed.update(removed)
+        self.removed.update(dict.fromkeys(removed))
         return argv
 
     def compile(self, jobs: List[Tuple[compiler.Unit, Optional[str]]]):
@@ -210,7 +210,7 @@ class _Run:
         self._witness(active, seen)
         first = next((units[k] for k in sorted(seen)), units[0] if units else None)
         command = [a.replace(self.overlay.tree, self.overlay.root) for a in self.argv(first)] if first else []
-        return Trial(self.configuration, self.results, self.fixups, self.errors, command, sorted(self.removed))
+        return Trial(self.configuration, self.results, self.fixups, self.errors, command, list(self.removed))
 
     def _witness(self, active: Set[int], seen: Dict[int, Set[int]]) -> None:
         jobs = []
@@ -259,6 +259,6 @@ class _Run:
 
 def run_trial(configuration: Configuration, candidates: List[Tuple[str, Candidate]],
               files: Dict[str, Tuple[SourceFile, str]], overlay: Overlay, witnesses: Dict[int, str],
-              jobs: int = 1, timeout: float = 120.0, execute: Callable = compiler.execute) -> Trial:
+              jobs: int = 1, timeout: float = 120.0, execute: Optional[Callable] = None) -> Trial:
     """Results for every candidate in one configuration; the overlay is left mutated."""
     return _Run(configuration, candidates, files, overlay, witnesses, jobs, timeout, execute).run()

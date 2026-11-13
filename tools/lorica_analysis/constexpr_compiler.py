@@ -87,10 +87,10 @@ def execute(argv: List[str], cwd: Optional[str], timeout: float) -> Tuple[Option
     return done.returncode, (done.stdout + done.stderr).decode("utf-8", errors="replace")
 
 
-def detect(command: str, timeout: float, run=execute) -> Toolchain:
+def detect(command: str, timeout: float) -> Toolchain:
     if os.path.basename(command).lower() in _MSVC:
         raise ToolError("%s: MSVC is not supported; GCC and Clang only" % command)
-    status, out = run([command, "--version"], None, timeout)
+    status, out = execute([command, "--version"], None, timeout)
     if status != 0:
         raise ToolError("%s: cannot run it (%s)" % (command, (out.strip().splitlines() or ["no output"])[0]))
     lower = out.lower()
@@ -98,7 +98,7 @@ def detect(command: str, timeout: float, run=execute) -> Toolchain:
     if family is None:
         raise ToolError("%s: neither GCC nor Clang (--version: %s)" % (command, out.strip().splitlines()[0]))
     version = re.search(r"\d+\.\d+(?:\.\d+)?", out.splitlines()[0]) or re.search(r"\d+\.\d+(?:\.\d+)?", out)
-    status, out = run([command, "-x", "c++", "-E", "-dM", os.devnull], None, timeout)
+    status, out = execute([command, "-x", "c++", "-E", "-dM", os.devnull], None, timeout)
     value = re.search(r"#define __cplusplus (\d+)L", out) if status == 0 else None
     if value is None:
         raise ToolError("%s: cannot read its default standard (__cplusplus)" % command)
@@ -199,7 +199,8 @@ def parse(text: str, cwd: str) -> Output:
         found = _LOCATION.match(raw)
         if not found or raw.startswith("In file included from") or found.group("file").startswith("<"):
             continue                    # Clang's "<scratch space>" for the canary's _Pragma
-        place = (os.path.normpath(os.path.join(cwd, found.group("file"))), int(found.group("line")),
+        file = found.group("file")
+        place = (file if file == "lorica-witness" else os.path.normpath(os.path.join(cwd, file)), int(found.group("line")),
                  found.group("message").strip())
         severity = found.group("severity")
         if severity in ("error", "fatal error"):

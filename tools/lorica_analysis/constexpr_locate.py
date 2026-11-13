@@ -98,8 +98,9 @@ def _head(tokens: List[Token], match: List[int], k: int, first_line: int = 0) ->
         if token.kind == PUNCT:
             opener = match[k - 1]
             if token.text in (")", "]", "}") and 0 <= opener < k - 1:
-                if token.text == "}" and (not first_line or tokens[opener].line < first_line):
-                    break
+                if token.text == "}" and (not first_line or tokens[opener].line < first_line
+                                          or tokens[k].text not in (",", "{")):
+                    break           # only a mem-initializer `x{1},` or `x{1} {` is in a head
                 k = opener
                 continue
             if token.text in (";", "{", "}"):
