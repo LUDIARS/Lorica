@@ -42,6 +42,8 @@ function(_lorica_apply_requested)
             lorica_deprecate_unsafe_apis("${target}")
         endif()
         if(NOT semantic STREQUAL "")
+            # The injected choice is the later, deliberate one: it replaces the project's.
+            set_property(TARGET "${target}" PROPERTY LORICA_CONTRACT_SEMANTIC "")
             lorica_set_contract_semantic("${target}" "${semantic}")
         endif()
     endforeach()

@@ -127,6 +127,9 @@ int element(std::span<const int> values, std::size_t index) {
 constexpr int square(int v) { return LORICA_POST_RETURN(v * v, r, r >= 0); }
 ```
 
+Each macro takes one condition; `LORICA_PRE(ok, "message")` does not compile, as
+the predicate text is the message.
+
 Laid over existing code from outside, without editing it
 (`<lorica/contract_overlay.hpp>`, [overlay](spec/feature/contracts.md#SPEC-LR-CONTRACT-OVERLAY)):
 
@@ -157,7 +160,10 @@ Choose the semantic per target from the build, without editing sources:
 `lorica_set_contract_semantic(my_service enforce)` (the default; also `observe`,
 `quick_enforce`, and `ignore`, which strips the checks and leaves the plain call),
 or for an existing project `-DLORICA_CONTRACT_SEMANTIC=ignore` next to
-`LORICA_TARGETS` with `LoricaInject.cmake`. Contracts catch bugs; they are not
+`LORICA_TARGETS` with `LoricaInject.cmake`, which replaces a semantic the project
+chose itself. Targets that share inline or template code containing contracts must
+get the same semantic (list them all in `LORICA_TARGETS`); otherwise which checks
+run is unspecified (P2900 mixed mode). Contracts catch bugs; they are not
 input validation, which must not disappear under `ignore`. `examples/contracts`
 runs one contract over a correct and a defective implementation as a test table.
 See [the contracts spec](spec/feature/contracts.md).

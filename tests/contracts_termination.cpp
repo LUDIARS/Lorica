@@ -42,6 +42,10 @@ void returning_handler(const lorica::contracts::contract_violation& violation) {
 void violating_handler(const lorica::contracts::contract_violation&) {
     LORICA_CONTRACT_ASSERT(false);
 }
+#if LORICA_DETAIL_CONTRACT_EXCEPTIONS
+// @implements SPEC-LR-VERIFY
+bool throwing_predicate() { throw 1; }
+#endif
 } // namespace
 
 // @implements SPEC-LR-VERIFY
@@ -66,6 +70,14 @@ int main(int argc, char** argv) {
                 std::fflush(stderr);
             });
         static_cast<void>(delegated(-1));
+        return 5;
+    }
+#endif
+#if LORICA_DETAIL_CONTRACT_EXCEPTIONS
+    if (std::strcmp(argv[1], "--predicate-throws") == 0) {
+        // A predicate that throws is handled as any violation of the semantic.
+        lorica::contracts::set_violation_handler(&returning_handler);
+        LORICA_CONTRACT_ASSERT(throwing_predicate());
         return 5;
     }
 #endif

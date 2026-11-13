@@ -59,23 +59,25 @@ namespace lorica::contracts::detail {
 // enclosing constant expression ill-formed, which is the C++26 behaviour.
 inline void contract_violated_during_constant_evaluation() noexcept { trap(); }
 
+// One condition per contract: a second macro argument (a message, say) would
+// otherwise be a comma expression whose value is the last operand.
+template <class Condition>
+constexpr bool holds(const Condition& condition) { return static_cast<bool>(condition); }
+
 template <evaluation_semantic Semantic, class Predicate>
 void evaluate_at_runtime(assertion_kind kind, Predicate& predicate, const char* comment,
                          source_location location, violation_sink sink, const void* context) {
 #if LORICA_DETAIL_CONTRACT_EXCEPTIONS
     bool satisfied = false;
-    std::exception_ptr thrown;
     try {
         satisfied = predicate();
     } catch (...) {
-        thrown = std::current_exception();
-    }
-    if (thrown) {
+        // As P2900: the handler runs inside the handler of the predicate's exception.
         if constexpr (Semantic == evaluation_semantic::quick_enforce) {
             trap();
         } else {
             handle_violation(sink, context, kind, Semantic, detection_mode::evaluation_exception,
-                             comment, location, thrown);
+                             comment, location, std::current_exception());
             return;
         }
     }
@@ -113,10 +115,11 @@ constexpr void check(assertion_kind kind, Predicate&& predicate, const char* com
     }
 }
 
-// Postcondition on a returned value: check, then forward it unchanged. The
-// reference stays valid for the enclosing full-expression (the return statement).
+// Postcondition on a returned value: check, then pass it on as an lvalue stays an
+// lvalue and an rvalue becomes a value (one move), so no reference to a temporary
+// leaves the return statement, whatever the function's return type deduces to.
 template <evaluation_semantic Semantic, class Value, class Predicate>
-constexpr Value&& check_result(Value&& value, Predicate&& predicate, const char* comment,
+constexpr Value check_result(Value&& value, Predicate&& predicate, const char* comment,
                                source_location location) {
     using viewed = const std::remove_reference_t<Value>&;
     check<Semantic>(
@@ -134,7 +137,8 @@ public:
         std::is_nothrow_move_constructible_v<Predicate>)
         : predicate_(static_cast<Predicate&&>(predicate)), comment_(comment), location_(location)
 #if LORICA_DETAIL_CONTRACT_EXCEPTIONS
-          , exceptions_on_entry_(std::uncaught_exceptions())
+          , exceptions_on_entry_(Semantic == evaluation_semantic::ignore
+                                     ? 0 : std::uncaught_exceptions())
 #endif
     {
     }
@@ -145,10 +149,13 @@ public:
 
     // An observe handler may throw; that exception leaves the function normally.
     ~post_guard() noexcept(false) {
+        // ignore asks nothing of the library, whose uncaught_exceptions may not be pure.
+        if constexpr (Semantic != evaluation_semantic::ignore) {
 #if LORICA_DETAIL_CONTRACT_EXCEPTIONS
-        if (std::uncaught_exceptions() != exceptions_on_entry_) return;
+            if (std::uncaught_exceptions() != exceptions_on_entry_) return;
 #endif
-        check<Semantic>(assertion_kind::post, predicate_, comment_, location_);
+            check<Semantic>(assertion_kind::post, predicate_, comment_, location_);
+        }
     }
 
 private:
@@ -179,7 +186,7 @@ post_guard<Semantic, std::decay_t<Predicate>> make_post_guard(Predicate&& predic
 #define LORICA_DETAIL_CONTRACT_CHECK(kind, ...) \
     ::lorica::contracts::detail::check<LORICA_DETAIL_CONTRACT_SEMANTIC>( \
         ::lorica::contracts::assertion_kind::kind, \
-        [&]() -> bool { return static_cast<bool>(__VA_ARGS__); }, #__VA_ARGS__, \
+        [&]() -> bool { return ::lorica::contracts::detail::holds(__VA_ARGS__); }, #__VA_ARGS__, \
         LORICA_DETAIL_CONTRACT_LOCATION)
 
 // Precondition. Place first in the function body.
@@ -190,16 +197,21 @@ post_guard<Semantic, std::decay_t<Predicate>> make_post_guard(Predicate&& predic
 
 // Postcondition checked when the enclosing scope exits by return or fall-off.
 // Declare it before the locals the predicate must not see; it sees parameters and
-// earlier locals by reference. Not usable in constant evaluation.
+// earlier locals by reference. Not usable in constant evaluation. It runs after the
+// return value has been constructed: a parameter or local that the return statement
+// moves from is seen moved-from; state a condition on the result with
+// LORICA_POST_RETURN.
 #define LORICA_POST(...) \
     const auto LORICA_DETAIL_CONTRACT_CONCAT(lorica_post_guard_, __COUNTER__) = \
         ::lorica::contracts::detail::make_post_guard<LORICA_DETAIL_CONTRACT_SEMANTIC>( \
-            [&]() -> bool { return static_cast<bool>(__VA_ARGS__); }, #__VA_ARGS__, \
+            [&]() -> bool { return ::lorica::contracts::detail::holds(__VA_ARGS__); }, #__VA_ARGS__, \
             LORICA_DETAIL_CONTRACT_LOCATION)
 
 // Postcondition on a result: `return LORICA_POST_RETURN(expr, r, r >= 0);`
-// Parenthesize `expr` if it contains a top-level comma. Usable in constexpr.
+// Parenthesize `expr` if it contains a top-level comma. Usable in constexpr. In every
+// semantic it copies an lvalue (write std::move(local) to move it) and moves an
+// rvalue once, so a type that cannot be moved cannot pass through it.
 #define LORICA_POST_RETURN(expression, name, ...) \
     ::lorica::contracts::detail::check_result<LORICA_DETAIL_CONTRACT_SEMANTIC>( \
-        expression, [&](const auto& name) -> bool { return static_cast<bool>(__VA_ARGS__); }, \
+        expression, [&](const auto& name) -> bool { return ::lorica::contracts::detail::holds(__VA_ARGS__); }, \
         #__VA_ARGS__, LORICA_DETAIL_CONTRACT_LOCATION)

@@ -15,8 +15,11 @@ and do not encode input validation as a contract, because `ignore` removes it.
 | --- | --- | --- |
 | `LORICA_PRE(pred)` | `pre(pred)` | First statement of the body |
 | `LORICA_POST(pred)` | `post(pred)` | Scope guard; checked on normal exit only; not constexpr |
-| `return LORICA_POST_RETURN(expr, r, pred);` | `post(r: pred)` | Forwards the value; constexpr |
+| `return LORICA_POST_RETURN(expr, r, pred);` | `post(r: pred)` | Passes an lvalue on as one, an rvalue by value; constexpr |
 | `LORICA_CONTRACT_ASSERT(pred)` | `contract_assert(pred)` | |
+
+Each macro takes one condition: a second argument, such as a message, does not
+compile (the predicate text is the message).
 
 `<lorica/contract_violation.hpp>` mirrors `<contracts>`: `assertion_kind`,
 `evaluation_semantic`, `detection_mode`, non-copyable `contract_violation` (`kind`,
@@ -35,8 +38,10 @@ on Linux deploy the SONAME in the loader search path. Rebuild and relink all
 consumers of the former static archive. Use compatible C++ ABIs and standard
 libraries; on MSVC use matching configurations and the shared CRT (/MD or /MDd)
 across modules, including plugins whose handlers throw. Replacing the handler
-does not wait for callbacks in flight. Before unloading a handler's plugin,
-quiesce callers, remove its handler, and wait for any outstanding calls.
+does not wait for callbacks in flight, and a handler can run on several threads at
+once. Before unloading a handler's plugin, quiesce callers, remove its handler, and
+wait for any outstanding calls (stop the threads that can violate a contract, or
+forward through a handler the host owns).
 
 ## Evaluation semantics
 
@@ -44,6 +49,8 @@ Selected per translation unit by `LORICA_CONTRACT_EVALUATION_SEMANTIC`
 (`ignore|observe|enforce|quick_enforce`, default `enforce`). An unknown value fails
 to compile. Mixed semantics across TUs for inline/template code follow P2900 mixed
 mode: which definition the linker keeps is unspecified, so use one per program.
+A source file that defines the macro itself keeps its own value; the compiler
+reports the redefinition.
 
 | ID | Guaranteed behaviour |
 | --- | --- |
@@ -51,21 +58,27 @@ mode: which definition the linker keeps is unspecified, so use one per program.
 | LR-CONTRACT-02 | `observe`: handler called once per violation; execution continues when it returns |
 | LR-CONTRACT-03 | `enforce`: handler called, then `std::abort` (no unwinding, no terminate handler) |
 | LR-CONTRACT-04 | `quick_enforce`: no handler, no I/O; `__builtin_trap` / `__fastfail(7)` |
-| LR-CONTRACT-05 | A predicate that throws is a violation with `evaluation_exception` and the captured `exception_ptr`; it does not escape |
+| LR-CONTRACT-05 | A predicate that throws is a violation with `evaluation_exception` and the captured `exception_ptr`; it does not escape. The handler runs while that exception is being handled (`std::current_exception()`, `throw;`) |
 | LR-CONTRACT-06 | A handler may throw; the exception propagates from the checking site |
 | LR-CONTRACT-07 | A violation raised while a handler runs on the same thread aborts without recursion |
 | LR-CONTRACT-08 | In constant evaluation a violated contract makes the expression ill-formed |
 | LR-CONTRACT-09 | `LORICA_POST` is skipped when the scope exits by exception |
 | LR-CONTRACT-10 | `-fno-exceptions` builds compile and enforce; no evaluation-exception path exists |
-| LR-CONTRACT-11 | A target's semantic is selectable from the build without editing its sources, replacing a definition the target already has; an unknown semantic or a second, different one for the same target fails configuration |
+| LR-CONTRACT-11 | A target's semantic is selectable from the build without editing its sources, replacing a definition the target already has; an unknown semantic or a second, different one from the project for the same target fails configuration; an injected one replaces the project's |
 
 `lorica_set_contract_semantic(<target> <semantic>)` (`cmake/LoricaContracts.cmake`,
 loaded with the package) sets it for a target's C++ sources, in-body macros and
 overlays alike. External injection does the same for every listed target with
 `-DLORICA_CONTRACT_SEMANTIC=<semantic>` next to `LORICA_TARGETS`
 (`cmake/LoricaInject.cmake`), so a project's contracts are stripped (`ignore`) or
-switched back on from the command line. A translation unit built with `ignore`
-references nothing in the runtime library.
+switched back on from the command line. List every target that compiles the same
+contract-bearing inline or template code: a target left out keeps its own semantic
+and the shared code is in mixed mode. A translation unit built with `ignore`
+references nothing in the runtime library, so a target built only with `ignore` or
+`quick_enforce` can link `Lorica::boundary` (same headers) instead. A target that
+links `Lorica::contracts` still records the runtime as a dependency unless the
+linker drops unused libraries (GNU `--as-needed`: Ubuntu's GCC passes it, Clang
+does not), and the shared object must then be deployed.
 
 Constant evaluation uses `std::is_constant_evaluated` (C++20) or the
 `__builtin_is_constant_evaluated` builtin (GCC, Clang, MSVC 19.25+) in C++17. Without
@@ -97,8 +110,9 @@ checked_divide.test(1, 0);     // {precondition_failed, "divisor is not zero"}; 
 `LORICA_CONTRACT_WITH(semantic, callable)` names one. Functions, function objects,
 lambdas and pointers to members (object first, as `std::invoke`) are accepted and
 held by value. `pre`, `post` and `on_violation` each return a new overlay; an
-overlay is immutable, so concurrent calls are as safe as the callable and the
-predicates are.
+overlay is immutable, so concurrent calls are as safe as the callable, the
+predicates and the delegate are. A message is not copied: it must outlive the
+overlay (normally a string literal).
 
 | ID | Guaranteed behaviour |
 | --- | --- |
@@ -107,7 +121,7 @@ predicates are.
 | LR-OVERLAY-03 | `ignore`: no condition is evaluated and the call is the callable's own, including its `noexcept` and a result that cannot be moved; the unit references nothing in the runtime library. A condition that cannot take the call's arguments still fails to compile |
 | LR-OVERLAY-04 | A postcondition takes the result first (nothing for `void`) and then the arguments, and is checked on normal return only |
 | LR-OVERLAY-05 | `on_violation(delegate)` sends that overlay's violations to the delegate in place of the installed handler; `enforce` still terminates when it returns, `quick_enforce` calls neither |
-| LR-OVERLAY-06 | `test(arguments...)` evaluates the conditions under every semantic, `ignore` included, reports the first that does not hold (`satisfied`, `precondition_failed`, `postcondition_failed` and its message), calls no handler or delegate, and does not call the callable when a precondition fails |
+| LR-OVERLAY-06 | `test(arguments...)` evaluates the conditions under every semantic, `ignore` included, reports the first that does not hold (`satisfied`, `precondition_failed`, `postcondition_failed` and its message), calls no handler or delegate, and does not call the callable when a precondition fails; an exception from the callable or from a predicate propagates out of `test` |
 | LR-OVERLAY-07 | An overlay over a `constexpr` callable is usable in constant evaluation, as is `test`; a violated condition there is ill-formed |
 
 The test mechanism is LR-OVERLAY-06: conditions written once are the callable's
@@ -141,6 +155,13 @@ Limits of the overlay:
 - A violation's location is where the overlay was started, not the line of the
   single condition; the message identifies the condition.
 - A pointer to member is callable in constant evaluation from C++20 only.
+- Arguments are perfectly forwarded: default arguments, a literal 0 for a pointer
+  and braced lists must be written out; a by-value argument is moved once; an
+  overload set needs a lambda; the call is not `noexcept` under a checking
+  semantic. An overlay answers `std::is_invocable` as its callable does.
+- Under `ignore` a condition is checked by its signature only; the body of a
+  generic condition with a declared return type is compiled first under a
+  checking semantic or by `test`.
 
 ## Limits (differences from native contracts)
 
@@ -149,8 +170,14 @@ Limits of the overlay:
 - `LORICA_POST` sees parameters and earlier locals by reference; a predicate over a
   parameter that the body modifies sees the modified value (P2900 requires const).
   Multiple `LORICA_POST` in one scope are checked in reverse declaration order.
-- `LORICA_POST_RETURN` copies (not moves) an lvalue local; do not use it in a
-  function returning a reference to a temporary.
+  It runs after the return value has been constructed: a parameter or local that
+  the return statement moves from is seen moved-from; state a condition on the
+  result with `LORICA_POST_RETURN`.
+- `LORICA_POST_RETURN` copies an lvalue local (write `std::move(local)` to move
+  it) and moves an rvalue once instead of eliding it, in every semantic including
+  `ignore`, so a type that cannot be moved cannot pass through it; an overlay
+  moves a by-value argument once. An rvalue is returned by value, so a function
+  that returns `T&&` cannot use it (the compiler reports the temporary).
 - In a `noexcept` function a throwing observe handler calls `std::terminate`.
 - No stack trace: the default handler prints `file:line: function: contract
   violation: <kind> (<semantic>, <mode>): <predicate>` and allocates nothing.
@@ -167,7 +194,12 @@ The enumerators and accessor names are kept identical to make that mechanical.
 `tests/contracts_observe.cpp` (C++17/20/23), `tests/contracts_ignore.cpp`, and
 `tests/contracts_termination.cpp` run in children by `tests/contract_termination.py`
 for enforce, quick_enforce and enforce with `-fno-exceptions` (abort with diagnostic,
-custom returning handler still aborts, re-entry abort, trap with empty stderr).
+custom returning handler still aborts, re-entry abort, trap with empty stderr; with
+exceptions also a throwing predicate). `lorica.contracts.ignore` links only
+`Lorica::boundary`: a reference to the runtime from an ignored contract fails the
+link. `lorica.contracts.rejected.*` build, through `tests/run_build_probe.cmake`,
+what must not compile: a condition of the wrong arity under `ignore`, a message as
+a second macro argument and an unknown semantic.
 
 `tests/contracts_overlay.cpp` (C++17/20/23, observe) covers LR-OVERLAY-01, 02 and
 04 to 07; `tests/contracts_ignore.cpp` covers LR-OVERLAY-03 and 06 under `ignore`;
@@ -180,13 +212,22 @@ expected).
 
 `tests/contract_semantic_switch.cmake` (LR-CONTRACT-11) configures, builds and runs
 one unchanging project whose program prints how many predicates ran: the default,
-the function, injection over a definition the project makes itself under warnings
-as errors, an unknown semantic and two different ones for one target.
+the function, injection over a definition and over a function call the project
+makes itself under warnings as errors, injection switching the checks back on,
+unknown semantics and two different ones from the project for one target.
+`lorica.inject` (`tests/inject_refusals.cmake`) configures a project that does not
+know Lorica through `LoricaInject.cmake` and checks the profile it applies and its
+refusals.
 
 `tests/contract_modules` also builds against an installed Lorica package. Two
 shared libraries independently set, read and reset the handler and raise observe
-violations. With a shared runtime two writers also check atomic exchange ordering
-across threads and modules. On Linux the test binds locally defined functions so that symbol
+violations. With a shared runtime, exchanges made from two threads through the two
+modules must agree on one order, and a violation raised on a second thread while a
+handler runs is handled (the re-entry guard is per thread). A non-atomic slot is
+detected by this test only in a `-fsanitize=thread` build:
+`cmake ... '-DCMAKE_CXX_FLAGS=-fsanitize=thread' && ctest -R '^lorica\.contracts'`
+(GCC 13.3, x86-64: all contract tests pass, and a plain-pointer slot fails
+`lorica.contracts.modules`). On Linux the test binds locally defined functions so that symbol
 interposition cannot hide a statically embedded copy.
 
 To reproduce the old behaviour, install unmodified PR #1 to a fresh prefix,

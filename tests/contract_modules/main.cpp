@@ -24,6 +24,14 @@ int second_calls = 0;
 void first(const contract_violation&) { ++first_calls; }
 void second(const contract_violation&) { ++second_calls; }
 
+// Runs on the violating thread, then once more on a thread it starts and joins.
+int nested_calls = 0;
+void nesting(const contract_violation&) {
+    if (++nested_calls != 1) return;
+    std::thread other([] { module_b::violate(); });
+    other.join();
+}
+
 void require(bool condition, const char* message) {
     if (!condition) {
         std::fprintf(stderr, "%s\n", message);
@@ -68,6 +76,12 @@ int main(int argc, char** argv) {
         require(a_first || b_first, "exchanges did not form a single order");
         require(module_a::get() == module_b::get(), "final handlers differ");
         require(module_a::set(nullptr) == (a_first ? second : first), "last writer lost");
+        // The re-entry guard is per thread: a violation on another thread while a
+        // handler runs here is handled, not treated as recursion.
+        module_a::set(nesting);
+        module_a::violate();
+        require(nested_calls == 2, "a violation on a second thread was not handled");
+        module_a::set(nullptr);
     }
     require(expected == "probe" || expected == (shared ? "shared" : "split"),
             "observed handler state differs from expected");

@@ -1,6 +1,9 @@
-// Built with LORICA_CONTRACT_EVALUATION_SEMANTIC=ignore.
+// Built with LORICA_CONTRACT_EVALUATION_SEMANTIC=ignore and linked without the
+// contracts runtime: a reference to it from an ignored contract fails the link.
 #include <lorica/contract_overlay.hpp>
 #include <cstdlib>
+#include <memory>
+#include <utility>
 
 namespace {
 // @implements SPEC-LR-VERIFY
@@ -25,15 +28,19 @@ struct pinned final {
 };
 // @implements SPEC-LR-VERIFY
 pinned pin(int value) { return pinned(value); }
+// A local is moved through LORICA_POST_RETURN only when the call says so.
 // @implements SPEC-LR-VERIFY
-void failing_handler(const lorica::contracts::contract_violation&) { std::abort(); }
+std::unique_ptr<int> boxed(int value) {
+    auto box = std::make_unique<int>(value);
+    return LORICA_POST_RETURN(std::move(box), r, r != nullptr);
+}
 } // namespace
 
 // @implements SPEC-LR-VERIFY
 int main() {
-    lorica::contracts::set_violation_handler(&failing_handler);
     require(checked(5) == 5);
     require(evaluations == 0); // ignore never evaluates a predicate.
+    require(*boxed(3) == 3);
 
     // The same for a contract laid over a function: ignore is the plain call.
     const auto overlaid = LORICA_CONTRACT(plain)

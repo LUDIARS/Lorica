@@ -164,7 +164,8 @@ int main(int, char** argv) {
         endif()
     endforeach()
     add_executable(lorica_contracts_ignore tests/contracts_ignore.cpp)
-    target_link_libraries(lorica_contracts_ignore PRIVATE Lorica::contracts)
+    # Headers only: an ignored contract must not need the runtime library.
+    target_link_libraries(lorica_contracts_ignore PRIVATE Lorica::boundary)
     target_compile_definitions(lorica_contracts_ignore PRIVATE LORICA_CONTRACT_EVALUATION_SEMANTIC=ignore)
     lorica_harden_target(lorica_contracts_ignore)
     add_test(NAME lorica.contracts.ignore COMMAND lorica_contracts_ignore)
@@ -175,6 +176,10 @@ int main(int, char** argv) {
     # Each variant as in-body macros and as an overlay: the outcomes must not differ.
     foreach(variant IN LISTS lorica_contract_variants)
         string(REPLACE "_noexceptions" "" semantic "${variant}")
+        set(harness_exceptions exceptions)
+        if(variant MATCHES "_noexceptions$")
+            set(harness_exceptions)
+        endif()
         foreach(form IN ITEMS "" overlay_)
             set(target lorica_contracts_${form}${variant})
             add_executable(${target} tests/contracts_termination.cpp)
@@ -189,8 +194,27 @@ int main(int, char** argv) {
             string(REPLACE "_" "" harness_form "${form}")
             add_test(NAME lorica.contracts.${form}${variant}
                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/contract_termination.py
-                    $<TARGET_FILE:${target}> ${semantic} ${harness_form})
+                    $<TARGET_FILE:${target}> ${semantic} ${harness_form} ${harness_exceptions})
         endforeach()
+    endforeach()
+    # What must not compile: built by its test only.
+    foreach(case IN ITEMS "condition_arity:1:ignore:a precondition is not callable"
+                          "message_argument:2:enforce:holds"
+                          "unknown_semantic:3:strict:strict")
+        string(REPLACE ":" ";" case "${case}")
+        list(GET case 0 name)
+        list(GET case 1 number)
+        list(GET case 2 semantic)
+        list(GET case 3 diagnostic)
+        add_executable(lorica_probe_contract_${name} EXCLUDE_FROM_ALL tests/contracts_rejected.cpp)
+        target_link_libraries(lorica_probe_contract_${name} PRIVATE Lorica::contracts)
+        target_compile_definitions(lorica_probe_contract_${name} PRIVATE
+            LORICA_TEST_REJECT=${number} LORICA_CONTRACT_EVALUATION_SEMANTIC=${semantic})
+        add_test(NAME lorica.contracts.rejected.${name} COMMAND "${CMAKE_COMMAND}"
+            "-DBUILD_DIR=${CMAKE_BINARY_DIR}" "-DTARGET=lorica_probe_contract_${name}" "-DCONFIG=$<CONFIG>"
+            "-DEXPECT=reject" "-DDIAGNOSTIC=${diagnostic}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_build_probe.cmake")
+        set_tests_properties(lorica.contracts.rejected.${name} PROPERTIES RESOURCE_LOCK lorica_build_tree)
     endforeach()
     # The semantic chosen from the build, by function and by injection, over
     # sources that never change.
@@ -199,6 +223,13 @@ int main(int, char** argv) {
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/contract_semantic_switch/$<CONFIG>"
         "-DGENERATOR=${CMAKE_GENERATOR}" "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}" "-DCONFIG=$<CONFIG>"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/contract_semantic_switch.cmake")
+    # LR-BUILD-02: what the injection that carries the semantic applies, and refuses.
+    add_test(NAME lorica.inject COMMAND "${CMAKE_COMMAND}"
+        "-DLORICA_CMAKE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/inject/$<CONFIG>"
+        "-DGENERATOR=${CMAKE_GENERATOR}" "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "-DEXTENDED=${lorica_extended}" "-DUNSAFE_API=${lorica_unsafe_api}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/inject_refusals.cmake")
     if(LORICA_BUILD_PROTECTION)
         find_package(Threads REQUIRED)
         add_executable(lorica_protection_tests tests/protection.cpp)

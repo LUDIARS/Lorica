@@ -81,6 +81,14 @@ static_assert(checked_square.test(3), "satisfied conditions");
 static_assert(checked_square.test(0).status ==
               lorica::contracts::test_status::precondition_failed, "refused argument");
 static_assert(std::is_same_v<decltype(checked_square(3)), int>, "same result type");
+// Asking whether an overlay takes some arguments answers as for the callable.
+static_assert(std::is_invocable_v<decltype(checked_square), int>, "callable as the function is");
+static_assert(!std::is_invocable_v<decltype(checked_square), const char*>, "and not otherwise");
+// LR-OVERLAY-07: a call that violates a condition is not a constant expression.
+template <int Value, int = (static_cast<void>(checked_square(Value)), 0)>
+constexpr bool constant_evaluable(int) { return true; }
+template <int Value> constexpr bool constant_evaluable(long) { return false; }
+static_assert(constant_evaluable<3>(0) && !constant_evaluable<0>(0), "violated in constant evaluation");
 } // namespace
 
 // @implements SPEC-LR-VERIFY
@@ -195,7 +203,24 @@ int main() {
     require(broken.status == test_status::postcondition_failed);
     require(std::string(broken.condition) == "quotient is negative");
     require(checked_divide.test(6, 3).condition == nullptr);
+    // void results are tested the same way.
+    require(static_cast<bool>(checked_store.test(13)) && stored == 13);
+    require(wrong_store.test(14).status == test_status::postcondition_failed);
+    // A named overlay is extended without changing it.
+    const auto small_dividend = checked_divide
+        .pre([](int dividend, int) { return dividend < 100; }, "dividend is small");
+    const auto small_quotient = checked_divide
+        .post([](int quotient, int, int) { return quotient < 10; }, "quotient is small");
+    require(std::string(small_dividend.test(200, 1).condition) == "dividend is small");
+    require(std::string(small_quotient.test(50, 2).condition) == "quotient is small");
+    require(static_cast<bool>(checked_divide.test(200, 1)));
     require(installed.count == handled && own.count == 1);
+    // A second delegate replaces the first.
+    recorded replacement;
+    const auto redelegated = delegated.on_violation(
+        [&replacement](const contract_violation& violation) { record(replacement, violation); });
+    require(redelegated(1, 0) == 0 && replacement.count == 1 && own.count == 1);
+    require(installed.count == handled);
 
     // An overlay with a semantic of its own, whatever this unit is built with.
     const auto silent = LORICA_CONTRACT_WITH(ignore, divide)

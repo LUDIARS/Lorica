@@ -21,6 +21,8 @@ namespace lorica {
 // byte in the requested order, independent of the host's byte order and alignment.
 // Like byte_view it is non-owning: the caller keeps the bytes alive and unchanged
 // for the reader's lifetime; it does not validate pointer provenance or lifetime.
+// One reader belongs to one thread: to parse in parallel, take() a part per worker
+// and give each its own byte_reader.
 // @implements SPEC-LR-READER
 class byte_reader final {
 public:

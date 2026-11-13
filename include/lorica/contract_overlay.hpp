@@ -101,12 +101,13 @@ template <evaluation_semantic Semantic, class Callable>
 }
 
 // Immutable once built: pre, post and on_violation each return a new overlay.
-// Concurrent calls are as safe as the callable and the predicates are.
+// Concurrent calls are as safe as the callable, the predicates and the delegate are.
 template <evaluation_semantic Semantic, class Callable, class Pre, class Post, class Delegate>
 class overlay final {
 public:
     // Adds a precondition: a predicate over the arguments (taken by const
-    // reference). message names it in a violation and in test results.
+    // reference). message names it in a violation and in test results; it is not
+    // copied, so it must outlive the overlay (normally a string literal).
     template <class Predicate>
     [[nodiscard]] constexpr auto pre(Predicate predicate, const char* message) && {
         return rebuild(std::move(callable_),
@@ -149,7 +150,8 @@ public:
 
     // Calls the callable. Each condition is one contract assertion of this
     // translation unit's evaluation semantic; ignore evaluates none of them.
-    template <class... Args>
+    template <class... Args,
+              class = std::enable_if_t<std::is_invocable_v<const Callable&, Args...>>>
     constexpr decltype(auto) operator()(Args&&... args) const
         noexcept(Semantic == evaluation_semantic::ignore &&
                  std::is_nothrow_invocable_v<const Callable&, Args...>) {
@@ -180,7 +182,8 @@ public:
     // first condition that does not hold instead of handling a violation, and does
     // not call the callable when a precondition fails. The callable's result is
     // discarded; an exception from it or from a predicate propagates.
-    template <class... Args>
+    template <class... Args,
+              class = std::enable_if_t<std::is_invocable_v<const Callable&, Args...>>>
     [[nodiscard]] constexpr test_result test(Args&&... args) const {
         using result_type = std::invoke_result_t<const Callable&, Args...>;
         require_callable_conditions<result_type, Args...>();
@@ -225,8 +228,8 @@ private:
             std::move(callable), std::move(pre), std::move(post), std::move(delegate), location_);
     }
 
-    // Checked under ignore too, so a stripped build cannot hide a condition that no
-    // longer matches the callable.
+    // Checked under ignore too, so a stripped build cannot hide a condition whose
+    // signature no longer matches the callable (a body is compiled only when called).
     template <class Result, class... Args>
     static constexpr void require_callable_conditions() noexcept {
         static_assert(detail::accepts<Pre, std::remove_reference_t<Args>...>::value,

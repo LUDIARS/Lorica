@@ -79,6 +79,9 @@ using violation_handler = void (*)(const contract_violation&);
 // Process-wide replacement point, the library analogue of the replaceable
 // ::handle_contract_violation. nullptr restores the default. Returns the previous
 // handler (nullptr when the default was active). Install during startup.
+// A handler can run on several threads at once, and replacing it does not wait for
+// calls already inside it: before unloading a handler's module, stop the threads
+// that can violate a contract or forward through a handler the host owns.
 LORICA_CONTRACTS_API violation_handler set_violation_handler(violation_handler handler) noexcept;
 [[nodiscard]] LORICA_CONTRACTS_API violation_handler get_violation_handler() noexcept;
 

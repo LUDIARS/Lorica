@@ -16,7 +16,7 @@ endif()
 set(inject "-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=${LORICA_SOURCE_DIR}/cmake/LoricaInject.cmake"
     -DLORICA_TARGETS=app)
 
-set(cases default by_function injected_over_definition unknown conflict)
+set(cases default by_function injected_over_definition injected_over_function switched_on unknown unknown_prefixed conflict)
 # The project says nothing: the header's default, enforce, evaluates both.
 set(default_expect "evaluations=2")
 # Asking twice for the same semantic is one request.
@@ -28,8 +28,20 @@ set(injected_over_definition_lines
     "target_compile_definitions(app PRIVATE LORICA_CONTRACT_EVALUATION_SEMANTIC=enforce)")
 set(injected_over_definition_arguments ${inject} -DLORICA_CONTRACT_SEMANTIC=ignore)
 set(injected_over_definition_expect "evaluations=0")
+# ...and what the project chose with the function: the injected choice is the later one.
+set(injected_over_function_lines "lorica_set_contract_semantic(app enforce)")
+set(injected_over_function_arguments ${inject} -DLORICA_CONTRACT_SEMANTIC=ignore)
+set(injected_over_function_expect "evaluations=0")
+# ...and switches the checks back on over a project that strips them itself.
+set(switched_on_lines
+    "target_compile_definitions(app PRIVATE LORICA_CONTRACT_EVALUATION_SEMANTIC=ignore)")
+set(switched_on_arguments ${inject} -DLORICA_CONTRACT_SEMANTIC=quick_enforce)
+set(switched_on_expect "evaluations=2")
 set(unknown_arguments ${inject} -DLORICA_CONTRACT_SEMANTIC=strict)
 set(unknown_refusal "must be ignore, observe, enforce or quick_enforce")
+# The value must be one of them, not merely contain one.
+set(unknown_prefixed_arguments ${inject} -DLORICA_CONTRACT_SEMANTIC=xignore)
+set(unknown_prefixed_refusal "${unknown_refusal}")
 set(conflict_lines "lorica_set_contract_semantic(app ignore)\nlorica_set_contract_semantic(app observe)")
 set(conflict_refusal "already has the contract semantic ignore")
 

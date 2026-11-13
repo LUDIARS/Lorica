@@ -1,6 +1,7 @@
 """SPEC-LR-VERIFY: a violated enforce/quick_enforce contract must end the child the
 specified way (abort after the handler, or an immediate trap with no handler)."""
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -28,8 +29,10 @@ def main() -> int:
     binary, semantic = sys.argv[1], sys.argv[2]
     # The overlay build has one more way to report: a delegate of its own.
     modes = ["--default", "--handler-returns", "--handler-violates"]
-    if sys.argv[3:] == ["overlay"]:
+    if "overlay" in sys.argv[3:]:
         modes.append("--delegate-returns")
+    if "exceptions" in sys.argv[3:]:
+        modes.append("--predicate-throws")
     satisfied = run(binary, "--satisfied")
     expect(satisfied.returncode == 0, f"satisfied contract exited {satisfied.returncode}")
 
@@ -40,9 +43,13 @@ def main() -> int:
         if semantic == "enforce":
             expect(code(result) == aborted, f"{mode}: expected abort, got {code(result)}")
             if mode == "--default":
-                expect("checked_index: contract violation: pre (enforce, predicate false): "
-                       "index >= 0" in result.stderr,
+                expect(re.search(r"contracts_termination\.cpp:[1-9]\d*: checked_index: contract "
+                                 r"violation: pre \(enforce, predicate false\): index >= 0\n",
+                                 result.stderr) is not None,
                        f"default diagnostic missing: {result.stderr!r}")
+            if mode == "--predicate-throws":
+                expect("custom handler: throwing_predicate() terminating=1" in result.stderr,
+                       f"handler did not run for a throwing predicate: {result.stderr!r}")
             if mode == "--handler-returns":
                 expect("custom handler: index >= 0 terminating=1" in result.stderr,
                        f"custom handler did not run: {result.stderr!r}")

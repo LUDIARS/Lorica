@@ -9,7 +9,7 @@ time: on Linux add `-DCMAKE_BUILD_TYPE=Release` (and repeat with Debug), or the
 `--config`/`-C` options below select nothing and the optimized checks do not run.
 
 ```sh
-cmake -S . -B build-test -DLORICA_BUILD_TESTS=ON
+cmake -S . -B build-test -DLORICA_BUILD_TESTS=ON -DLORICA_BUILD_EXAMPLES=ON
 cmake --build build-test --config Release
 ctest --test-dir build-test -C Release --output-on-failure
 python tools/verify_binary.py build-test/Release/lorica_boundary_tests.exe

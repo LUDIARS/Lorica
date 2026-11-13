@@ -67,18 +67,14 @@ const char* to_string(detection_mode mode) noexcept {
 // @implements SPEC-LR-CONTRACTS
 void invoke_default_contract_violation_handler(const contract_violation& violation) noexcept {
     const source_location location = violation.location();
-    write_text(location.file_name());
-    std::fprintf(stderr, ":%lu: ", static_cast<unsigned long>(location.line()));
-    write_text(location.function_name());
-    write_text(": contract violation: ");
-    write_text(to_string(violation.kind()));
-    write_text(" (");
-    write_text(to_string(violation.semantic()));
-    write_text(", ");
-    write_text(to_string(violation.mode()));
-    write_text("): ");
-    write_text(violation.comment());
-    write_text("\n");
+    const auto text = [](const char* value) { return value != nullptr ? value : "(null)"; };
+    // One call holds the stream lock for the whole line: concurrent violations
+    // do not interleave.
+    std::fprintf(stderr, "%s:%lu: %s: contract violation: %s (%s, %s): %s\n",
+                 text(location.file_name()), static_cast<unsigned long>(location.line()),
+                 text(location.function_name()), to_string(violation.kind()),
+                 to_string(violation.semantic()), to_string(violation.mode()),
+                 text(violation.comment()));
     std::fflush(stderr);
 }
 
