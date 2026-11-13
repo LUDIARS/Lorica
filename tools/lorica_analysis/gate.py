@@ -1,10 +1,12 @@
 """Assertion-style gate: thresholds, baseline and suppressions. @implements SPEC-LR-ANALYZE
 
-A metric value v of a function fails when
+The gated metrics are those given a threshold, or all metrics when only a
+baseline is given. A gated value v of a function fails when
   - the function is in the baseline with value b: v > b and (no threshold or v > threshold);
   - otherwise: a threshold t is given and v > t.
 So an existing code base passes with its baseline and fails only when a function
-gets worse, or a function absent from the baseline exceeds a threshold.
+gets worse in a gated metric, or a function absent from the baseline exceeds a
+threshold.
 
 Baseline keys are `path::qualified-name(parameter count)`, with `#2`, `#3` for
 further overloads of the same arity in source order, and paths relative to the
@@ -105,6 +107,8 @@ def evaluate(command: str, entries: List[Entry], thresholds: Dict[str, int],
             findings.append(Finding(function.file, function.line, function.name, "suppression",
                                     0, None, None, ""))
         for metric, value in entry.metrics.items():
+            if thresholds and metric not in thresholds:
+                continue
             limit = thresholds.get(metric)
             before = recorded.get(metric) if recorded else None
             if before is not None:

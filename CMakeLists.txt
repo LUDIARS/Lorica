@@ -140,6 +140,7 @@ int main(int, char** argv) {
     lorica_add_unsafe_api_probes()
 
     add_subdirectory(tests/contract_modules)
+    add_subdirectory(tests/analysis)
 
     # Contracts: the in-body macros (observe) and the overlay, both under observe at
     # each supported standard; ignore; then termination in children.

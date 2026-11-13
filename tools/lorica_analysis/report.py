@@ -81,7 +81,7 @@ def text(run: Run, show_all: bool = False) -> str:
                        + "  %s:%d %s%s" % (e.function.file, e.function.line, e.function.name,
                                            " (%s)" % e.label if e.label else ""))
     if run.improved:
-        out.append("improved on the baseline: %d values; --write-baseline records them" % run.improved)
+        out.append("values improved on the baseline: %d (--write-baseline records them)" % run.improved)
     out.append("result: %s, findings %d, suppressed %d" % (run.result, s["findings"], s["suppressed"]))
     return "\n".join(out) + "\n"
 
