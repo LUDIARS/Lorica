@@ -1,6 +1,8 @@
-"""Lexical C++ source analysis for Lorica's assertion-style checks (stdlib only).
+"""Lexical C/C++ source analysis for Lorica's assertion-style checks (stdlib only).
 
-Modules: lexer (tokens, directives, comments), preprocess (conditional groups),
-extract (functions and unparsed regions), complexity (metrics), gate (thresholds,
-baseline, suppressions), sources (input selection), report (text and JSON).
+Pipeline: lexer (tokens, directives, comments) -> preprocess (conditional groups)
+-> extract (functions and unparsed regions; the API other analyses build on)
+-> complexity (metrics) -> gate (thresholds, baseline, suppressions) -> report
+(text and JSON). sources selects and reads the input files. The command line is
+tools/lorica_analyze.py. Specification: spec/feature/source-analysis.md.
 """
