@@ -198,7 +198,7 @@ write, `escape` = returned by reference, `atomic`) and a `synchronization` value
 
 | synchronization | Meaning |
 | --- | --- |
-| `not-needed` | not accessed, read-only in the set, initialised only, or thread_local |
+| `not-needed` | not accessed, read-only in the set, accessed only in initialisation or destruction, or thread_local |
 | `caller-must-synchronize` | a member never locked: the object is caller-synchronized |
 | `lock:<names>` | every access holds these locks: consistent in the analysed set, the strongest positive statement made |
 | `atomic:<orders>` | a std::atomic, judged per operation; on plain data, `atomic:<flag>` means published by that atomic |

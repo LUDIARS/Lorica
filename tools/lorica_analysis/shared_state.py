@@ -30,6 +30,7 @@ the callable of std::call_once and in the initialiser of a static local are
 initialisation and exempt. Locks held at every call site propagate into callees in
 an unnamed namespace, static free functions and private members.
 """
+import os
 from typing import Dict, FrozenSet, List, NamedTuple, Optional, Set, Tuple
 
 from .accesses import MT_UNSAFE, Event, Facts, walk
@@ -306,7 +307,7 @@ class _Analysis:
             d.note = "publication or guard" if d.publication else ""
             return
         if not live:
-            d.note = "initialised only" if d.accesses else "not accessed in the analysed set"
+            d.note = "only in initialisation or destruction" if d.accesses else "not accessed in the analysed set"
             return
         unknown = [a for a in live if a.locks is None]
         if unknown:
@@ -388,10 +389,14 @@ class _Analysis:
         if d.finding:
             metrics[d.finding] = 1
         metrics["unknown"] = int(d.sync == "unknown")
-        notes = tuple(Note(a.event.line, "access", 1, "%s %s %s in %s%s" % (
+        def where(a: _Access) -> str:       # the line, with the file when it is another one
+            f = a.facts.function
+            return ("%d" if f.file == v.file else os.path.basename(f.file) + ":%d") % a.event.line
+        notes = tuple(Note(a.event.line, "access", 1, "%s %s %s in %s%s%s" % (
             a.access, _locks(a.locks), "init" if a.init else "", a.facts.function.name,
-            " (lambda)" if "lambda" in a.event.flags else "")) for a in d.accesses)
-        accesses = "; ".join("%d %s%s %s%s" % (a.event.line, a.access, "" if a.init else " " + _locks(a.locks),
+            " (lambda)" if "lambda" in a.event.flags else "",
+            "" if a.facts.function.file == v.file else " (%s)" % a.facts.function.file)) for a in d.accesses)
+        accesses = "; ".join("%s %s%s %s%s" % (where(a), a.access, "" if a.init else " " + _locks(a.locks),
                                                 a.facts.function.name.rsplit("::", 1)[-1],
                                                 " (init)" if a.init else "") for a in d.accesses)
         label = "%s %s: synchronization %s%s%s%s" % (
