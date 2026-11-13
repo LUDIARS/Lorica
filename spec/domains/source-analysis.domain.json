@@ -1,0 +1,14 @@
+{
+  "name": "source-analysis",
+  "description": "Read C and C++ sources as text, without a compiler, and extract functions failing closed to unparsed regions; measure per-function complexity and gate it like an assertion with thresholds, a baseline and reasoned suppressions; its own tests, fixtures and adoption example.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {"pathPattern": "(^|/)tools/lorica_analyze\\.py$"},
+    {"pathPattern": "(^|/)tools/lorica_analysis/[^/]+\\.py$"},
+    {"pathPattern": "(^|/)tests/analysis/"},
+    {"pathPattern": "(^|/)examples/analysis/"}
+  ],
+  "specRefs": ["spec/feature/source-analysis.md"],
+  "rationale": "A lexical heuristic gate is a development diagnostic, not a security boundary: it never edits or runs the analysed code and reports what it could not read instead of guessing. Its fixtures are deliberately malformed C++ and belong with the analyser, not with the contract tests."
+}
