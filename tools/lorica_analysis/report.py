@@ -33,11 +33,13 @@ def _lines(regions: List[Region]) -> int:
 
 
 def summary(run: Run) -> dict:
-    return {"files": len(run.files), "functions": len(run.entries),
-            "unparsed_regions": len(run.unparsed), "lines_not_analysed": _lines(run.not_analysed),
-            "findings": sum(1 for f in run.findings if not f.suppressed),
-            "suppressed": sum(1 for f in run.findings if f.suppressed),
-            "improved": run.improved, "result": run.result}
+    data = sum(1 for e in run.entries if e.function.kind == "datum")    # shared-state rows
+    return dict({"files": len(run.files), "functions": len(run.entries) - data},
+                **({"data": data} if data else {}),
+                unparsed_regions=len(run.unparsed), lines_not_analysed=_lines(run.not_analysed),
+                findings=sum(1 for f in run.findings if not f.suppressed),
+                suppressed=sum(1 for f in run.findings if f.suppressed),
+                improved=run.improved, result=run.result)
 
 
 def _describe(finding: Finding) -> str:
@@ -60,8 +62,9 @@ def _notes(entry: Optional[Entry], metric: str) -> List[str]:
 
 def text(run: Run, show_all: bool = False) -> str:
     s = summary(run)
-    out = ["lorica-analyze %s: files %d, functions analysed %d, unparsed regions %d, "
+    out = ["lorica-analyze %s: files %d, functions analysed %d, %sunparsed regions %d, "
            "lines not analysed %d" % (run.command, s["files"], s["functions"],
+                                      "data %d, " % s["data"] if "data" in s else "",
                                       s["unparsed_regions"], s["lines_not_analysed"])]
     out += ["error: " + e for e in run.errors]
     by_place = {(e.function.file, e.function.line, e.function.name): e for e in run.entries}

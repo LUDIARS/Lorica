@@ -75,7 +75,7 @@ threshold it only reports. A finding kind fails the run once it has a limit:
 
 ```console
 $ python3 ../../tools/lorica_analyze.py shared-state shared.cpp --max-inconsistent-locking 0 --max-unsynchronized 0
-lorica-analyze shared-state: files 1, functions analysed 16, unparsed regions 0, lines not analysed 0
+lorica-analyze shared-state: files 1, functions analysed 8, data 8, unparsed regions 0, lines not analysed 0
 FAIL shared.cpp:7 failures: unsynchronized 1 > 0
     (global long: synchronization missing, unsynchronized; accesses: 32 rmw {} serve)
 FAIL shared.cpp:15 registry::hits_: inconsistent-locking 1 > 0
@@ -91,10 +91,10 @@ findings fail:
 
 ```console
 $ python3 ../../tools/lorica_analyze.py shared-state shared.cpp --write-baseline shared-state-baseline.json
-lorica-analyze shared-state: files 1, functions analysed 16, unparsed regions 0, lines not analysed 0
+lorica-analyze shared-state: files 1, functions analysed 8, data 8, unparsed regions 0, lines not analysed 0
 result: pass, findings 0, suppressed 0
 $ python3 ../../tools/lorica_analyze.py shared-state shared.cpp --max-inconsistent-locking 0 --max-unsynchronized 0 --baseline shared-state-baseline.json
-lorica-analyze shared-state: files 1, functions analysed 16, unparsed regions 0, lines not analysed 0
+lorica-analyze shared-state: files 1, functions analysed 8, data 8, unparsed regions 0, lines not analysed 0
 result: pass, findings 0, suppressed 0
 $ echo $?
 0
@@ -105,7 +105,7 @@ access as a `contributions` entry):
 
 ```console
 $ python3 ../../tools/lorica_analyze.py shared-state shared.cpp --all
-lorica-analyze shared-state: files 1, functions analysed 16, unparsed regions 0, lines not analysed 0
+lorica-analyze shared-state: files 1, functions analysed 8, data 8, unparsed regions 0, lines not analysed 0
 inconsistent-locking  unsynchronized  write-under-shared-lock  reference-escapes-lock  const-writes-mutable  lock-not-held  relaxed-publication  invalid-order  fence-without-atomic  mt-unsafe-call  unknown  function
                    0               0                        0                       0                     0              0                    0              0                     0               0        0  shared.cpp:6 served (global std::atomic<long>: synchronization atomic:relaxed; accesses: 30 atomic {} serve)
                    0               1                        0                       0                     0              0                    0              0                     0               0        0  shared.cpp:7 failures (global long: synchronization missing, unsynchronized; accesses: 32 rmw {} serve)

@@ -311,7 +311,7 @@ class RobustnessTests(unittest.TestCase):
         for _ in range(200):
             text = " ".join(generator.choice(alphabet) for _ in range(generator.randrange(300)))
             analyse(analyse_text("random.cpp", text))
-        for path in lorica_sources("include", "src") + sorted(FIXTURES.iterdir()):
+        for path in lorica_sources("include", "src") + sorted(p for p in FIXTURES.iterdir() if p.is_file()):
             text = path.read_text(encoding="utf-8")
             for cut in range(0, len(text), max(1, len(text) // 40)):
                 analyse(analyse_text(path.name, text[:cut]))

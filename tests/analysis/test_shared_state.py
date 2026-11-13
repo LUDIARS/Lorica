@@ -196,7 +196,7 @@ class CommandTests(unittest.TestCase):
         path = shutil.copy(CASES / "c10_different_mutexes.cpp", self.directory)
         status, out, _ = run_cli("shared-state", path)
         self.assertEqual(status, 0)
-        self.assertTrue(out.startswith("lorica-analyze shared-state: files 1, functions analysed 3,"))
+        self.assertTrue(out.startswith("lorica-analyze shared-state: files 1, functions analysed 2, data 1,"))
         status, out, _ = run_cli("shared-state", path, "--max-inconsistent-locking", "0")
         self.assertEqual(status, 1)
         self.assertIn("FAIL %s:4 shared: inconsistent-locking 1 > 0\n    (global int: synchronization "
