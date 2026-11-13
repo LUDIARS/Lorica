@@ -136,16 +136,8 @@ int main() {
         for (std::size_t index = 0; index < 5; ++index) require(pack.at(*many, index) == table[index]);
         require(!pack.at(*many, 5) && !pack.at(*many, max)); // Out of range: a value, not a fault.
     }
-    // Capacity 0 is refused; an absurd capacity fails to allocate its staging buffer.
+    // Capacity 0 is refused.
     require(throws_invalid_argument([] { lorica::pack_builder builder(0); }));
-    bool refused = false;
-    try {
-        // Used and sealed, so that the compiler may not elide the allocation.
-        lorica::pack_builder builder(max);
-        static_cast<void>(builder.add(1));
-        const lorica::sealed_pack pack(std::move(builder));
-    } catch (const std::bad_alloc&) { refused = true; }
-    require(refused);
     // Sealing nothing is refused and leaves the builder usable.
     {
         lorica::pack_builder builder(8);
@@ -175,4 +167,14 @@ int main() {
         const lorica::sealed_pack own(std::move(first));
         require(own.load(*kept) == 111 && other->load(*kept) == 222);
     }
+    // Last, because sanitizer allocators report this instead of throwing: an
+    // absurd capacity fails to allocate its staging buffer.
+    bool refused = false;
+    try {
+        // Used and sealed, so that the compiler may not elide the allocation.
+        lorica::pack_builder builder(max);
+        static_cast<void>(builder.add(1));
+        const lorica::sealed_pack pack(std::move(builder));
+    } catch (const std::bad_alloc&) { refused = true; }
+    require(refused);
 }

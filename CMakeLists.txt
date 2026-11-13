@@ -181,8 +181,6 @@ if(LORICA_BUILD_TESTS)
             lorica_harden_target(lorica_${name}_tests)
         endforeach()
         add_test(NAME lorica.pack.unit COMMAND lorica_pack_tests)
-        # An absurd capacity must reach operator new's std::bad_alloc under ASan too.
-        set_tests_properties(lorica.pack.unit PROPERTIES ENVIRONMENT "ASAN_OPTIONS=allocator_may_return_null=1")
         foreach(case IN ITEMS control:exit-0 write_first:access-violation write_last:access-violation
                               load_outside:abort at_outside:abort)
             string(REPLACE ":" ";" case "${case}")
