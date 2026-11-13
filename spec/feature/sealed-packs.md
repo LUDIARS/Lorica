@@ -169,7 +169,10 @@ without ThreadSanitizer it cannot fail.
 lookup table and a string table and reads them back, then measures N integers held
 as `sealed_value`s, as one pack and as heap allocations. Only checksums are judged.
 
-AddressSanitizer checks the builder's writes into its heap staging buffer but does
+Under GCC 13's AddressSanitizer and ThreadSanitizer the unit test fails at its
+last check only, the absurd capacity: those runtimes' `operator new[]` reports
+the oversized request and exits instead of throwing `std::bad_alloc`, even with
+`allocator_may_return_null=1`. AddressSanitizer checks the builder's writes into its heap staging buffer but does
 not see a read past the used bytes inside the OS mapping; the fault children prove
 the read bound. Windows code paths were not
 compiled or executed for the pack.
