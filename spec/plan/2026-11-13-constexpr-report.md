@@ -9,10 +9,15 @@ Two compilation databases, configured with `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 -DLORICA_BUILD_TESTS=ON` for `g++` and for `clang++` (38 entries each). The probe units
 (`*_probes/*`: unsafe-API rejections, sealed-type and runtime-format probes) are
 designed not to compile and were excluded; the 32 other units were compiled.
+Since the contracts review fixes, `tests/contracts_rejected.cpp` (the contracts'
+must-not-compile probes) needs the second exclusion; without it the run ends
+`incomplete` with exit 2 (checked on the tree of
+`2026-11-13-comprehensive-review-evidence.md`).
 
 ```sh
 python3 tools/lorica_analyze.py constexpr include src \
     --compile-commands <build>/compile_commands.json --exclude '*_probes/*' \
+    --exclude '*/tests/contracts_rejected.cpp' \
     --std 17 --std 20 --std 23 --witnesses lorica-witnesses.json --show-hidden --all --jobs 2
 ```
 
