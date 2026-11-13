@@ -64,3 +64,97 @@ add_test(NAME myapp.complexity COMMAND ${Python3_EXECUTABLE}
 
 A single function can be exempted, with a reason, on its declaration line:
 `int legacy(int x) { // lorica-analyze: ignore(cognitive) generated table, reviewed`.
+
+# constexpr: what the compiler tolerates, and what a witness verifies
+
+`constexpr_sample.hpp` holds functions none of which is declared constexpr. The
+`constexpr` subcommand inserts the specifier in a temporary copy of the tree (never
+in these files) and asks GCC or Clang. Accepting the specifier is only a necessary
+condition; a function is verified only when a *witness* (a `static_assert` or a
+constexpr variable that calls it) compiles with the change and fails without it.
+
+Without a compiler nothing is tried; the locator lists what it can state as fact:
+
+```console
+$ python3 ../../tools/lorica_analyze.py constexpr constexpr_sample.hpp constexpr_sample.cpp --all
+lorica-analyze constexpr: files 2, functions analysed 5, unparsed regions 0, lines not analysed 0
+functions not declared constexpr: 7 (tried 0, excluded 2); already constexpr 0; variables are not analysed
+nothing was compiled (no --compiler and no --compile-commands): no function is reported as rejected, accepted or witnessed
+not tried: 5
+    not tried constexpr_sample.hpp:7 scaled
+    not tried constexpr_sample.hpp:10 address_of
+    not tried constexpr_sample.hpp:13 checked_divide
+    not tried constexpr_sample.hpp:22 now_seconds
+    not tried constexpr_sample.hpp:26 twice (hidden: template)
+excluded (not tried): 2
+    1 defined in a source file with external linkage: constexpr implies inline, so the definition would have to move to a header, which changes linkage and exported symbols
+    1 main cannot be constexpr
+    excluded constexpr_sample.cpp:4 parse_level: defined in a source file with external linkage: constexpr implies inline, so the definition would have to move to a header, which changes linkage and exported symbols
+    excluded constexpr_sample.cpp:6 main: main cannot be constexpr
+result: pass, findings 0, suppressed 0
+```
+
+With GCC at C++17 and C++20 and the witnesses in `constexpr-witnesses.json` (keys as
+in a baseline). `scaled` is witnessed; `address_of` is accepted by GCC but its witness
+does not compile (it is never constant); `checked_divide` needs C++20 and has no
+witness; `now_seconds` is rejected; the template is hidden, since every compiler
+accepts the specifier on one. This block is skipped where `g++` is absent; lines
+ending in `...` depend on the compiler version:
+
+```console
+$ python3 ../../tools/lorica_analyze.py constexpr constexpr_sample.hpp constexpr_sample.cpp --compiler g++ --std 17 --std 20 --witnesses constexpr-witnesses.json
+lorica-analyze constexpr: files 2, functions analysed 5, unparsed regions 0, lines not analysed 0
+functions not declared constexpr: 7 (tried 5, excluded 2); already constexpr 0; variables are not analysed
+tried g++ ...
+tried g++ ...
+constexpr_sample.hpp:7 scaled: witnessed everywhere
+    witnessed g++ c++17, c++20: witness compiled in constexpr_sample.cpp and fails without the change
+constexpr_sample.hpp:10 address_of: accepted at most (not verified)
+    accepted g++ c++17, c++20: necessary condition only, not verified: the witness does not compile: lorica-witness:2: ...
+constexpr_sample.hpp:13 checked_divide: accepted at most (not verified)
+    rejected g++ c++17: constexpr_sample.hpp:14: ...
+    accepted g++ c++20: necessary condition only, not verified: no witness
+constexpr_sample.hpp:22 now_seconds: rejected everywhere
+    rejected g++ c++17, c++20: constexpr_sample.hpp:22: ...
+hidden: 1 (template 1); --show-hidden lists them
+excluded (not tried): 2 (--all lists them)
+    1 defined in a source file with external linkage: constexpr implies inline, so the definition would have to move to a header, which changes linkage and exported symbols
+    1 main cannot be constexpr
+result: pass, findings 0, suppressed 0
+$ echo $?
+0
+```
+
+Used as an assertion: `--max-witnessed 0` fails while a function proven convertible
+is not declared constexpr. `--emit-patch FILE` writes a unified diff of the results
+witnessed in every configuration; nothing is ever applied:
+
+```console
+$ python3 ../../tools/lorica_analyze.py constexpr constexpr_sample.hpp constexpr_sample.cpp --compiler g++ --std 20 --witnesses constexpr-witnesses.json --max-witnessed 0 --emit-patch witnessed.diff
+lorica-analyze constexpr: files 2, functions analysed 5, unparsed regions 0, lines not analysed 0
+FAIL constexpr_sample.hpp:7 scaled: witnessed 1 > 0
+functions not declared constexpr: 7 (tried 5, excluded 2); already constexpr 0; variables are not analysed
+tried g++ ...
+constexpr_sample.hpp:7 scaled: witnessed everywhere
+    witnessed g++ c++20: witness compiled in constexpr_sample.cpp and fails without the change
+constexpr_sample.hpp:10 address_of: accepted at most (not verified)
+    accepted g++ c++20: necessary condition only, not verified: the witness does not compile: lorica-witness:2: ...
+constexpr_sample.hpp:13 checked_divide: accepted at most (not verified)
+    accepted g++ c++20: necessary condition only, not verified: no witness
+constexpr_sample.hpp:22 now_seconds: rejected everywhere
+    rejected g++ c++20: constexpr_sample.hpp:22: ...
+hidden: 1 (template 1); --show-hidden lists them
+excluded (not tried): 2 (--all lists them)
+    1 defined in a source file with external linkage: constexpr implies inline, so the definition would have to move to a header, which changes linkage and exported symbols
+    1 main cannot be constexpr
+result: fail, findings 1, suppressed 0
+$ echo $?
+1
+```
+
+On a CMake project, export `compile_commands.json` and name the headers to try:
+`python3 tools/lorica_analyze.py constexpr include src --compile-commands
+build/compile_commands.json --std 17 --std 20 --witnesses constexpr-witnesses.json`.
+A function kept deliberately non-constexpr carries
+`// lorica-analyze: ignore(constexpr) <reason>` on its declaration line. The durable
+proof is the witness itself, as a `static_assert` in a test every CI compiler builds.
