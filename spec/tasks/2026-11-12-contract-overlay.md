@@ -19,3 +19,4 @@ and needs no runtime library; a delegate per overlay; `test` reports without
 handling and without making a refused call; usable in constant evaluation;
 C++17/20/23 tests, termination tests shared with the in-body form, a runnable demo.
 Not included: argument-rewriting fail-safe, invariants, rebinding of function names.
+Executed and not executed: spec/plan/2026-11-13-comprehensive-review-evidence.md.

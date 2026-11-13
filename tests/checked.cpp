@@ -12,7 +12,6 @@
 #include <cstdlib>
 #include <limits>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>

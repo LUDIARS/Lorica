@@ -1,14 +1,17 @@
 # Dependency and memory-safety review
 
 Runtime: C++17 standard library (C++20 for the checked API headers) and
-Windows/Linux virtual-memory APIs. No third-party packages, vendored sources,
+Windows/Linux virtual-memory APIs. `Lorica::contracts` is a shared library (DLL /
+`.so`, SONAME `liblorica_contracts.so.0` on Linux) deployed with every consumer; it
+needs the shared C++ runtime and writes to stderr with stdio. No third-party packages, vendored sources,
 transitive package dependencies, network downloads or install-time code execution.
 Build: CMake 3.24+ and a supported compiler/linker. Optional artifact inspection:
 Python 3 standard library, plus trusted binutils `readelf` for ELF. Optional fuzzing:
 Linux Clang's compiler-rt/libFuzzer; instrumentation is test-only.
 
 Optional source analysis: Python 3 standard library only (`tools/lorica_analyze.py`);
-no compiler, clang or package. clang-tidy was used once to validate it and is not a dependency.
+no package, and no compiler except when the `constexpr` subcommand is asked to start
+one (below). clang-tidy was used once to validate it and is not a dependency.
 
 Source analysis audit (2026-11-12): reads files as UTF-8 with replacement, refuses
 files over 8 MiB, never executes, imports or edits the analysed code; writes only the files it is
@@ -45,8 +48,9 @@ Memory audit:
   only after proving offset <= capacity.
 - Byte reads check the declared bound; null + zero pointer arithmetic is avoided.
 - Pointer provenance, actual backing extent and lifetime remain caller preconditions.
-- Boundary headers allocate nothing. The optional compiled protection component
-  owns dedicated OS mappings; it cannot detect UAF or double-free elsewhere.
+- Boundary headers allocate nothing. The compiled components are the optional
+  protection archive, which owns dedicated OS mappings and cannot detect UAF or
+  double-free elsewhere, and the contracts runtime.
 - Budgets update all dimensions only on success; callers must not race on a budget.
 - Read-only views do not synchronize mutations of the underlying object.
 - No unchecked C ABI or Rust/unsafe bridge is included in this first version.
@@ -65,7 +69,18 @@ destruction remains forbidden. Returned copies and owner metadata are unprotecte
 No encryption, authentication, secure erase or general allocator is invented.
 Tests use Python standard-library subprocess without a shell; no installer or
 transitive package dependencies were introduced. Python is needed when building
-the tests (the protection and extended-profile stop checks).
+the tests (protection, pack and extended-profile stop checks, the profile
+comparisons, contract termination and the analyzer tests); the protection and
+contract module tests need the platform thread library.
+
+Contracts runtime audit (2026-11-13): one `std::atomic` handler pointer (exchange
+acquire-release, load acquire) and a `thread_local` re-entry flag are its only
+state; Lorica's code allocates nothing on the violation path, and the default
+handler writes one `fprintf` line to stderr. `std::exception_ptr` crosses the module
+boundary by value, so every module must use the same C++ ABI and, on MSVC, the
+shared CRT. The ABI is not versioned beyond SONAME 0 (an owner decision; see
+`spec/plan/2026-11-13-comprehensive-review-evidence.md`). Overlays are header-only
+and hold the callable, predicates and delegate by value; messages are not copied.
 
 Sealed pack audit (2026-11-12): header-only on the existing protection target, no
 new OS code. The builder stages values in a zeroed `new[]` buffer of the caller's

@@ -53,9 +53,16 @@ Recommended on Linux Clang, beyond the registered tests (no runtime library need
 `clang++ -std=c++23 -O1 -fsanitize=undefined,integer,implicit-conversion -fsanitize-trap=all -fsanitize-ignorelist=<std headers> -Iinclude tests/checked.cpp`.
 The ignorelist excludes the standard library's own intended conversions.
 
-Praesidium: `tests/checked.cpp` is listed first in `praesidium.json`, so a changed
-header is analyzed with a C++20 unit, the newest standard Lorica's headers require.
-The C++17 headers keep C++17 coverage through the C++17 units and the CMake builds.
+Praesidium compiles the `praesidium.json` units whose own file changed (all units in
+repository scope); a header-only change compiles no unit, so header coverage comes
+from the CMake builds. Every built `.c`/`.cpp` file has an entry whose standard and
+defines match its build (a unit built several ways is listed once, with its first
+standard). `src/sealed_region_windows.cpp` is empty outside `_WIN32` and is not
+checked on Linux. The analyzer fixtures under `tests/analysis/fixtures/` are not
+translation units (several are deliberately malformed) and have no entry; the
+manifest format cannot exclude them, so a repository-scope Praesidium run stops at
+`native.configuration-required` until Revisor offers an exclusion or the fixtures
+change extension (an owner decision).
 
 ## Source analysis (SPEC-LR-ANALYZE)
 

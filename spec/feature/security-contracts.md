@@ -7,8 +7,9 @@ these contracts before allocation/processing. Compromised native code in the sam
 address space can bypass or corrupt checks. OS isolation is the security boundary
 for that threat, and belongs to the service launcher, not this library.
 
-Design: small independently usable headers and build modules, no allocator or
-global mutable state. `checked_size`, `byte_view` and `input_budget` are C++17;
+Design: small independently usable headers and build modules, no allocator. The
+only process-wide mutable state is the violation handler of `Lorica::contracts`
+(an atomic pointer, see [contracts](contracts.md)). `checked_size`, `byte_view` and `input_budget` are C++17;
 `checked_integer`, `bounded_text` and `byte_reader` need C++20 (concepts) and use
 C++23/26 library features when present (see [checked APIs](checked-apis.md)). The
 examples do not require `std::expected` or ownership emulation. Errors are

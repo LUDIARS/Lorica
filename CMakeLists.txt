@@ -232,7 +232,7 @@ int main(int, char** argv) {
     # Contracts: the in-body macros (observe) and the overlay, both under observe at
     # each supported standard; ignore; then termination in children.
     foreach(standard IN ITEMS 17 20 23)
-        if(standard IN_LIST CMAKE_CXX_COMPILE_FEATURES OR "cxx_std_${standard}" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+        if("cxx_std_${standard}" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
             foreach(suite IN ITEMS observe overlay)
                 set(target lorica_contracts_${suite}_cxx${standard})
                 add_executable(${target} tests/contracts_${suite}.cpp)

@@ -5,7 +5,6 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
-#include <utility>
 
 namespace {
 // @implements SPEC-LR-VERIFY

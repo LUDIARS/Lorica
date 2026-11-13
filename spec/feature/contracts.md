@@ -34,8 +34,7 @@ per-thread re-entry guard. Independent runtime copies, static embeddings and
 separate loader namespaces have independent state and are outside this guarantee.
 
 Ship the runtime DLL next to the executable on Windows (link the import library);
-on Linux deploy the SONAME in the loader search path. Rebuild and relink all
-consumers of the former static archive. Use compatible C++ ABIs and standard
+on Linux deploy the SONAME in the loader search path. Use compatible C++ ABIs and standard
 libraries; on MSVC use matching configurations and the shared CRT (/MD or /MDd)
 across modules, including plugins whose handlers throw. Replacing the handler
 does not wait for callbacks in flight, and a handler can run on several threads at
@@ -61,7 +60,7 @@ reports the redefinition.
 | LR-CONTRACT-05 | A predicate that throws is a violation with `evaluation_exception` and the captured `exception_ptr`; it does not escape. The handler runs while that exception is being handled (`std::current_exception()`, `throw;`) |
 | LR-CONTRACT-06 | A handler may throw; the exception propagates from the checking site |
 | LR-CONTRACT-07 | A violation raised while a handler runs on the same thread aborts without recursion |
-| LR-CONTRACT-08 | In constant evaluation a violated contract makes the expression ill-formed |
+| LR-CONTRACT-08 | In constant evaluation a violated contract makes the expression ill-formed under `observe`, `enforce` and `quick_enforce` (under `ignore` the predicate is not evaluated) |
 | LR-CONTRACT-09 | `LORICA_POST` is skipped when the scope exits by exception |
 | LR-CONTRACT-10 | `-fno-exceptions` builds compile and enforce; no evaluation-exception path exists |
 | LR-CONTRACT-11 | A target's semantic is selectable from the build without editing its sources, replacing a definition the target already has; an unknown semantic or a second, different one from the project for the same target fails configuration; an injected one replaces the project's |
@@ -179,15 +178,20 @@ Limits of the overlay:
   moves a by-value argument once. An rvalue is returned by value, so a function
   that returns `T&&` cannot use it (the compiler reports the temporary).
 - In a `noexcept` function a throwing observe handler calls `std::terminate`.
+- A violated `observe` contract in constant evaluation is a hard error here
+  (LR-CONTRACT-08); P2900 makes only the terminating semantics ill-formed there and
+  lets `observe` diagnose and continue.
 - No stack trace: the default handler prints `file:line: function: contract
-  violation: <kind> (<semantic>, <mode>): <predicate>` and allocates nothing.
+  violation: <kind> (<semantic>, <mode>): <predicate>` with one `fprintf` to stderr;
+  Lorica's code allocates nothing there.
   `std::stacktrace` (C++23) is a follow-up that needs per-toolchain link flags.
 
 ## Migration
 
 When toolchains define `__cpp_contracts`, replace the macros with `pre`/`post` on
 declarations and `contract_assert`, and the handler with `::handle_contract_violation`.
-The enumerators and accessor names are kept identical to make that mechanical.
+The enumerators and accessor names are kept identical to make that mechanical,
+except `contract_violation::mode()`, which the standard spells `detection_mode()`.
 
 ## Verification
 
@@ -230,15 +234,11 @@ detected by this test only in a `-fsanitize=thread` build:
 `lorica.contracts.modules`). On Linux the test binds locally defined functions so that symbol
 interposition cannot hide a statically embedded copy.
 
-To reproduce the old behaviour, install unmodified PR #1 to a fresh prefix,
-then build the new fixture as a standalone consumer:
+The fixture fails if the two modules see different handlers. Standalone against
+an installed package:
 
 ```sh
-cmake -S tests/contract_modules -B probe -DCMAKE_PREFIX_PATH=<absolute-prefix> -DLORICA_TEST_HANDLER_STATE=split
-cmake --build probe --config Release
-ctest --test-dir probe -C Release -V
+cmake -S tests/contract_modules -B modules -DCMAKE_PREFIX_PATH=<absolute-prefix>
+cmake --build modules --config Release
+ctest --test-dir modules -C Release -V
 ```
-
-For a Linux default-binding observation use a fresh build with
-`-DLORICA_TEST_BIND_LOCAL=OFF -DLORICA_TEST_HANDLER_STATE=probe`. For a fixed
-installation omit both overrides: the default oracle requires shared state.
