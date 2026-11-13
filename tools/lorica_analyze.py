@@ -9,10 +9,10 @@ or a baseline.
 import argparse
 import os
 import sys
-from typing import Callable, List, NamedTuple, Tuple
+from typing import Callable, List, NamedTuple, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lorica_analysis import complexity, gate, report, sources  # noqa: E402
+from lorica_analysis import complexity, gate, report, shared_state, sources  # noqa: E402
 from lorica_analysis.extract import Region, SourceFile, analyse_text  # noqa: E402
 
 
@@ -20,6 +20,7 @@ class Command(NamedTuple):
     help: str
     metrics: tuple                      # each gets a --max-<metric> option
     analyse: Callable[[SourceFile], Tuple[List[gate.Entry], List[Region]]]
+    finish: Optional[Callable[[], Tuple[List[gate.Entry], List[Region]]]] = None  # after every file
 
 
 def _complexity(source: SourceFile):
@@ -33,6 +34,10 @@ COMMANDS = {
     "complexity": Command("cyclomatic and cognitive complexity, nesting, parameters, NLOC",
                           complexity.METRICS, _complexity),
 }
+_SHARED_STATE = shared_state.Collector()
+COMMANDS["shared-state"] = Command(
+    "shared data and its locks, atomics and their memory orders, per datum and function",
+    shared_state.FINDINGS, _SHARED_STATE.add, _SHARED_STATE.finish)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -78,6 +83,10 @@ def main(argv=None) -> int:
         entries += found
         unparsed += source.unparsed + refused
         not_analysed += source.not_analysed
+    if command.finish:
+        found, refused = command.finish()
+        entries += found
+        unparsed += refused
     thresholds = {m: getattr(args, "max_" + m) for m in command.metrics
                   if getattr(args, "max_" + m) is not None}
     root = os.path.dirname(os.path.abspath(args.baseline)) if args.baseline else ""
