@@ -15,11 +15,12 @@ orders nothing without an atomic object, and the atomic already gives the
 release/acquire pairing that publishes the handler. Every other datum is a member of
 an object the caller owns: those classes are caller-synchronized (concurrent reads of
 one object are fine, a concurrent write needs the caller's lock), as the standard
-library's own types are. The one place threads can visibly interfere is the default
-violation handler's output, one message built from thirteen stdio calls on `stderr`
-(eleven `fputs` through `write_text`, one `fprintf`, one `fflush`):
-data-race-free, but lines from two threads can interleave. The memory-safety half of
-the question is answered by the separate manual audit, not here.
+library's own types are. The one place threads meet outside the atomic is the default
+violation handler's output on `stderr`: one `fprintf` per line (and an `fflush`),
+which holds the stream lock for the whole line, so lines from two threads do not
+interleave (they did before the review fix of CON-01, with thirteen calls per line).
+The memory-safety half of the question is answered by the separate manual audit
+(`2026-11-13-parallel-operability-and-memory-safety.md`), not here.
 
 ## Commands
 
@@ -31,7 +32,7 @@ python3 tools/lorica_analyze.py shared-state include src --strict --json   # eve
 
 ```console
 $ python3 tools/lorica_analyze.py shared-state include src --strict
-lorica-analyze shared-state: files 16, functions analysed 104, data 46, unparsed regions 0, lines not analysed 0
+lorica-analyze shared-state: files 16, functions analysed 105, data 46, unparsed regions 0, lines not analysed 0
 result: pass, findings 0, suppressed 0
 ```
 
@@ -54,19 +55,19 @@ numbers are in the declaring file unless a file is named.
 
 | Datum | Declared | Kind | synchronization | Accesses (line, kind, lockset, function) |
 | --- | --- | --- | --- | --- |
-| `byte_reader::bytes_` | byte_reader.hpp:88 | member `std::span<const std::byte>` | caller-must-synchronize | 34 read {} size; 36 read {} remaining; 41 call {} take |
-| `byte_reader::offset_` | byte_reader.hpp:89 | member `std::size_t` | caller-must-synchronize | 35 read {} offset; 36 read {} remaining; 41 call {} take; 42 rmw {} take; 79 read {} read_prefixed; 83 write {} read_prefixed |
+| `byte_reader::bytes_` | byte_reader.hpp:90 | member `std::span<const std::byte>` | caller-must-synchronize | 36 read {} size; 38 read {} remaining; 43 call {} take |
+| `byte_reader::offset_` | byte_reader.hpp:91 | member `std::size_t` | caller-must-synchronize | 37 read {} offset; 38 read {} remaining; 43 call {} take; 44 rmw {} take; 81 read {} read_prefixed; 85 write {} read_prefixed |
 | `byte_view::data_` | byte_view.hpp:33 | member `const std::byte*` | not-needed (read-only in the analysed set) | 21 read {} at; 27 read {} subview |
 | `byte_view::size_` | byte_view.hpp:34 | member `std::size_t` | not-needed (read-only in the analysed set) | 18 read {} size; 20 read {} at; 25 read {} subview |
 | `contracts::test_result::status` | contract_overlay.hpp:34 | member `test_status` | not-needed (read-only in the analysed set) | 38 read {} operator bool |
 | `contracts::test_result::condition` | contract_overlay.hpp:36 | member `const char*` | not-needed (not accessed in the analysed set) | none |
 | `contracts::detail::condition::predicate` | contract_overlay.hpp:45 | member `Predicate` | not-needed (not accessed in the analysed set) | none |
 | `contracts::detail::condition::message` | contract_overlay.hpp:46 | member `const char*` | not-needed (not accessed in the analysed set) | none |
-| `contracts::overlay::callable_` | contract_overlay.hpp:262 | member `Callable` | caller-must-synchronize | 112 call {} pre; 126 call {} post; 142 call {} on_violation; 159 read {} operator(); 163 read {} operator(); 165 read {} operator(); 168 read {} operator(); 192 read {} test; 195 read {} test |
-| `contracts::overlay::pre_` | contract_overlay.hpp:263 | member `Pre` | caller-must-synchronize | 113 call {} pre; 126 call {} post; 142 call {} on_violation; 161 read {} operator(); 187 read {} test |
-| `contracts::overlay::post_` | contract_overlay.hpp:264 | member `Post` | caller-must-synchronize | 113 call {} pre; 127 call {} post; 142 call {} on_violation; 166 read {} operator(); 169 read {} operator(); 193 read {} test; 196 read {} test |
-| `contracts::overlay::delegate_` | contract_overlay.hpp:265 | member `Delegate` | caller-must-synchronize | 114 call {} pre; 128 call {} post; 246 read {} check |
-| `contracts::overlay::location_` | contract_overlay.hpp:266 | member `source_location` | not-needed (read-only in the analysed set) | 225 read {} rebuild; 246 read {} check |
+| `contracts::overlay::callable_` | contract_overlay.hpp:265 | member `Callable` | caller-must-synchronize | 113 call {} pre; 127 call {} post; 143 call {} on_violation; 161 read {} operator(); 165 read {} operator(); 167 read {} operator(); 170 read {} operator(); 195 read {} test; 198 read {} test |
+| `contracts::overlay::pre_` | contract_overlay.hpp:266 | member `Pre` | caller-must-synchronize | 114 call {} pre; 127 call {} post; 143 call {} on_violation; 163 read {} operator(); 190 read {} test |
+| `contracts::overlay::post_` | contract_overlay.hpp:267 | member `Post` | caller-must-synchronize | 114 call {} pre; 128 call {} post; 143 call {} on_violation; 168 read {} operator(); 171 read {} operator(); 196 read {} test; 199 read {} test |
+| `contracts::overlay::delegate_` | contract_overlay.hpp:268 | member `Delegate` | caller-must-synchronize | 115 call {} pre; 129 call {} post; 249 read {} check |
+| `contracts::overlay::location_` | contract_overlay.hpp:269 | member `source_location` | not-needed (read-only in the analysed set) | 228 read {} rebuild; 249 read {} check |
 | `contracts::source_location::file` | contract_violation.hpp:30 | member `const char*` | not-needed (read-only in the analysed set) | 34 read {} file_name |
 | `contracts::source_location::function` | contract_violation.hpp:31 | member `const char*` | not-needed (read-only in the analysed set) | 35 read {} function_name |
 | `contracts::source_location::line_number` | contract_violation.hpp:32 | member `std::uint_least32_t` | not-needed (read-only in the analysed set) | 36 read {} line |
@@ -76,10 +77,10 @@ numbers are in the declaring file unless a file is named.
 | `contracts::contract_violation::comment_` | contract_violation.hpp:70 | member `const char*` | not-needed (read-only in the analysed set) | 54 read {} comment |
 | `contracts::contract_violation::location_` | contract_violation.hpp:71 | member `source_location` | not-needed (read-only in the analysed set) | 55 read {} location |
 | `contracts::contract_violation::evaluation_exception_` | contract_violation.hpp:72 | member `std::exception_ptr` | not-needed (read-only in the analysed set) | 58 read {} evaluation_exception |
-| `contracts::detail::post_guard::predicate_` | contracts.hpp:155 | member `Predicate` | not-needed (only in initialisation or destruction) | 1 in ~post_guard (exempt) |
-| `contracts::detail::post_guard::comment_` | contracts.hpp:156 | member `const char*` | not-needed (only in initialisation or destruction) | 1 in ~post_guard (exempt) |
-| `contracts::detail::post_guard::location_` | contracts.hpp:157 | member `source_location` | not-needed (only in initialisation or destruction) | 1 in ~post_guard (exempt) |
-| `contracts::detail::post_guard::exceptions_on_entry_` | contracts.hpp:159 | member `int` | not-needed (only in initialisation or destruction) | 1 in ~post_guard (exempt) |
+| `contracts::detail::post_guard::predicate_` | contracts.hpp:162 | member `Predicate` | not-needed (only in initialisation or destruction) | 1 in ~post_guard (exempt) |
+| `contracts::detail::post_guard::comment_` | contracts.hpp:163 | member `const char*` | not-needed (only in initialisation or destruction) | 1 in ~post_guard (exempt) |
+| `contracts::detail::post_guard::location_` | contracts.hpp:164 | member `source_location` | not-needed (only in initialisation or destruction) | 1 in ~post_guard (exempt) |
+| `contracts::detail::post_guard::exceptions_on_entry_` | contracts.hpp:166 | member `int` | not-needed (only in initialisation or destruction) | 1 in ~post_guard (exempt) |
 | `detail::sealed_region::data_` | detail/sealed_region.hpp:17 | member `void*` | not-needed (read-only in the analysed set) | 15 read {} data; 17 in sealed_region, ~sealed_region of sealed_region_linux.cpp, sealed_region_windows.cpp (exempt) |
 | `detail::sealed_region::size_` | detail/sealed_region.hpp:18 | member `std::size_t` | not-needed (only in initialisation or destruction) | 8 in sealed_region, ~sealed_region of sealed_region_linux.cpp, sealed_region_windows.cpp (exempt) |
 | `budget_limits::bytes` | input_budget.hpp:7 | member `std::size_t` | not-needed (not accessed in the analysed set) | none |
@@ -99,18 +100,18 @@ numbers are in the declaring file unless a file is named.
 | `sealed_pack::used_` | sealed_pack.hpp:156 | member `std::size_t` | not-needed (read-only in the analysed set) | 150 read {} read |
 | `sealed_value::storage_` | sealed_value.hpp:25 | member `detail::sealed_region` | not-needed (read-only in the analysed set) | 21 read {} load |
 | `contracts::(anonymous namespace)::installed_handler` | src/contract_violation.cpp:9 | global `std::atomic<violation_handler>` | atomic:acq_rel,acquire | 29 atomic {} set_violation_handler; 34 atomic {} get_violation_handler |
-| `contracts::(anonymous namespace)::handling_violation` | src/contract_violation.cpp:12 | global `bool` | not-needed (thread_local) | 16 write {} handler_scope; 17 write {} ~handler_scope; 92 read {} handle_violation |
+| `contracts::(anonymous namespace)::handling_violation` | src/contract_violation.cpp:12 | global `bool` | not-needed (thread_local) | 16 write {} handler_scope; 17 write {} ~handler_scope; 88 read {} handle_violation |
 
 Counts: `not-needed` 36 (19 read-only in the set, 11 not accessed, 5 only in
 initialisation or destruction, 1 thread_local), `caller-must-synchronize` 9,
 `atomic:acq_rel,acquire` 1; `lock:`, `inconsistent`, `missing`, `unknown`: 0.
 
-## Functions by `sharing` (104)
+## Functions by `sharing` (105)
 
 | sharing | Functions |
 | --- | --- |
 | no-shared-state | 36 |
-| caller-synchronized:read | 30 |
+| caller-synchronized:read | 31 |
 | caller-synchronized:write | 23 |
 | self-synchronized(unverified) | 2: `set_violation_handler`, `get_violation_handler` |
 | unknown | 13 (below) |
@@ -125,12 +126,12 @@ Flags: `shared-stream` on `invoke_default_contract_violation_handler`;
 | Function | Why unknown | Correct? |
 | --- | --- | --- |
 | `contracts::detail::call` (contract_overlay.hpp:54) | calls the user callable through `std::invoke` and `static_cast<Callable&&>(callable)(...)` | yes: user code |
-| `detail::first_failed` (:77), `overlay::check` (:240) | `std::apply` over the user predicates | yes |
-| `overlay::operator()` (:153), `overlay::test` (:184) | through `call`, `check`, `first_failed` | yes |
-| `detail::evaluate_at_runtime`, `detail::check`, `detail::check_result` (contracts.hpp:63, 96, 119) | call the predicate parameter; `check` also the macro `LORICA_DETAIL_IS_CONSTANT_EVALUATED` | yes |
-| `post_guard::~post_guard` (contracts.hpp:147) | through `detail::check` | yes |
+| `detail::first_failed` (:77), `overlay::check` (:243) | `std::apply` over the user predicates | yes |
+| `overlay::operator()` (:155), `overlay::test` (:187) | through `call`, `check`, `first_failed` | yes |
+| `detail::evaluate_at_runtime`, `detail::check`, `detail::check_result` (contracts.hpp:68, 98, 122) | call the predicate parameter; `check` also the macro `LORICA_DETAIL_IS_CONSTANT_EVALUATED` | yes |
+| `post_guard::~post_guard` (contracts.hpp:151) | through `detail::check` | yes |
 | `detail::trap` (contracts.hpp:50), `contract_violated_during_constant_evaluation` (:60) | `__fastfail` in the MSVC branch, kept because both branches are bracket-neutral | conservative: the intrinsic terminates the process and touches nothing shared |
-| `detail::handle_violation` (contract_violation.cpp:87) | calls the `sink` parameter and the installed `handler` | yes: user code runs here |
+| `detail::handle_violation` (contract_violation.cpp:83) | calls the `sink` parameter and the installed `handler` | yes: user code runs here |
 | `sealed_region::sealed_region` (sealed_region_windows.cpp:13) | `GetLastError` is not in the analysed set | conservative: it reads a per-thread value |
 
 ## Analysis
@@ -179,6 +180,7 @@ unknown instead of caller-synchronized.
   exercised only by the fixtures (`tests/analysis/fixtures/shared_state/`).
 
 Not executed: the analyser over a Windows build configuration (only the textual
-union of `#if` branches is read), and any runtime check of Lorica itself under
-ThreadSanitizer (the design review's ad-hoc run reported 0 races; a registered test
-remains open in `spec/test/verification.md`).
+union of `#if` branches is read). The runtime check under ThreadSanitizer is the
+whole suite in a `-fsanitize=thread` build (SPEC-LR-SANITIZERS in
+`spec/test/verification.md`); the manual audit and its TSan experiments are in
+`2026-11-13-parallel-operability-and-memory-safety.md`.
