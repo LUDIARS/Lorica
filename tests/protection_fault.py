@@ -7,7 +7,11 @@ import sys
 
 def main() -> int:
     # Launch via argv, never a shell. Timeout/missing binary/other failures fail test.
-    result = subprocess.run([sys.argv[1], "--write"], timeout=15, check=False)
+    # The child handles SIGSEGV itself; sanitizer runtimes must not intercept it first.
+    env = dict(os.environ)
+    for name in ("ASAN_OPTIONS", "TSAN_OPTIONS"):
+        env[name] = ":".join(filter(None, (env.get(name), "handle_segv=0")))
+    result = subprocess.run(sys.argv[1:3], timeout=15, check=False, env=env)
     expected = 0xC0000005 if os.name == "nt" else -signal.SIGSEGV
     actual = result.returncode & 0xFFFFFFFF if os.name == "nt" else result.returncode
     if actual != expected:

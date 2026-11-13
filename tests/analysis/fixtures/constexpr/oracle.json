@@ -1,0 +1,528 @@
+{
+ "rule": "R: rejected under -pedantic-errors -Werror=invalid-constexpr; W: accepted and the WITNESS block compiles under -pedantic-errors; A: accepted, witness fails",
+ "source": "design review 2026-11-12, oracle/results2.json: g++ 13.3 and clang++ 18.1.3 (libstdc++ 13), -fsyntax-only; states per C++17, C++20, C++23",
+ "states": {
+  "01_pure": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "02_loop_mutate_local": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "03_calls_nonconstexpr": {
+   "clang++": "AAA",
+   "g++": "RRR"
+  },
+  "03b_calls_defined_nonconstexpr": {
+   "clang++": "AAA",
+   "g++": "RRR"
+  },
+  "03c_calls_nonconstexpr_member": {
+   "clang++": "AAA",
+   "g++": "RRR"
+  },
+  "04_calls_nonconstexpr_one_path": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "05_try_catch": {
+   "clang++": "RWW",
+   "g++": "RWW"
+  },
+  "06_static_local": {
+   "clang++": "RRR",
+   "g++": "RRR"
+  },
+  "06b_static_const_local": {
+   "clang++": "RRW",
+   "g++": "RRW"
+  },
+  "06c_static_constexpr_local": {
+   "clang++": "RRW",
+   "g++": "RRW"
+  },
+  "06d_thread_local_local": {
+   "clang++": "RRR",
+   "g++": "RRR"
+  },
+  "07_new_delete": {
+   "clang++": "RWW",
+   "g++": "RWW"
+  },
+  "08_std_string_local": {
+   "clang++": "RWW",
+   "g++": "RWW"
+  },
+  "09_std_vector_local": {
+   "clang++": "RWW",
+   "g++": "RWW"
+  },
+  "10_virtual": {
+   "clang++": "RWW",
+   "g++": "RWW"
+  },
+  "11_lambda": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "12_union_switch_active": {
+   "clang++": "RWW",
+   "g++": "WWW"
+  },
+  "12b_union_pun": {
+   "clang++": "AAA",
+   "g++": "AAA"
+  },
+  "13_reinterpret_cast": {
+   "clang++": "RRR",
+   "g++": "AAA"
+  },
+  "13b_reinterpret_cast_one_path": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "14_throw_one_path": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "14b_always_throw": {
+   "clang++": "RRR",
+   "g++": "RRR"
+  },
+  "15_member_mutation": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "16_ctor_init_list": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "16b_ctor_member_uninit": {
+   "clang++": "RWW",
+   "g++": "RWW"
+  },
+  "16c_ctor_function_try": {
+   "clang++": "RWW",
+   "g++": "RWW"
+  },
+  "17_uninit_local": {
+   "clang++": "RWW",
+   "g++": "RWW"
+  },
+  "18_template_dependent_call": {
+   "clang++": "AAA",
+   "g++": "AAA"
+  },
+  "18b_template_nondependent_nonconstexpr": {
+   "clang++": "AAA",
+   "g++": "AAA"
+  },
+  "19_memcpy": {
+   "clang++": "RRR",
+   "g++": "AAA"
+  },
+  "20_strlen": {
+   "clang++": "RRR",
+   "g++": "WWW"
+  },
+  "21_cmath_sqrt": {
+   "clang++": "AAA",
+   "g++": "WWW"
+  },
+  "21b_cmath_abs_int": {
+   "clang++": "AAA",
+   "g++": "WWW"
+  },
+  "21c_cmath_fabs": {
+   "clang++": "AAA",
+   "g++": "WWW"
+  },
+  "22_goto": {
+   "clang++": "RRW",
+   "g++": "RRW"
+  },
+  "23_asm": {
+   "clang++": "RWW",
+   "g++": "RWW"
+  },
+  "24_dynamic_cast": {
+   "clang++": "RWW",
+   "g++": "AWW"
+  },
+  "25_nonliteral_param_by_value": {
+   "clang++": "RRR",
+   "g++": "RRR"
+  },
+  "25b_nonliteral_param_by_ref": {
+   "clang++": "AAA",
+   "g++": "AAA"
+  },
+  "25c_nonliteral_return": {
+   "clang++": "RRR",
+   "g++": "RRR"
+  },
+  "26_member_of_nonliteral_class": {
+   "clang++": "AAA",
+   "g++": "AAA"
+  },
+  "27_decl_mismatch": {
+   "clang++": "RRR",
+   "g++": "RRR"
+  },
+  "28_write_through_pointer": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "29_read_global": {
+   "clang++": "RRR",
+   "g++": "RRR"
+  },
+  "29b_write_global": {
+   "clang++": "RRR",
+   "g++": "AAA"
+  },
+  "29c_read_thread_local": {
+   "clang++": "RRR",
+   "g++": "RRR"
+  },
+  "29d_read_const_global": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "30_pointer_index": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "31_optional_return": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "33_void_ptr_cast": {
+   "clang++": "AAA",
+   "g++": "AAA"
+  },
+  "34_atomic_local": {
+   "clang++": "AAA",
+   "g++": "RRR"
+  },
+  "35_std_swap": {
+   "clang++": "RWW",
+   "g++": "RWW"
+  },
+  "35b_std_find": {
+   "clang++": "AWW",
+   "g++": "RWW"
+  },
+  "35c_std_min": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "36_destructor": {
+   "clang++": "RWW",
+   "g++": "RWW"
+  },
+  "38_volatile_read": {
+   "clang++": "AAA",
+   "g++": "RRR"
+  },
+  "43_std_array_fill": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "48_assert_macro": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "50_errno": {
+   "clang++": "RRR",
+   "g++": "AAA"
+  },
+  "51_structured_binding": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "52_coroutine_like_placement_new": {
+   "clang++": "RRR",
+   "g++": "RRR"
+  },
+  "53_operator_hidden_call": {
+   "clang++": "AAA",
+   "g++": "RRR"
+  },
+  "54_implicit_conversion_hidden_call": {
+   "clang++": "RRR",
+   "g++": "RRR"
+  },
+  "55_string_view_param": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  },
+  "56_float_arith": {
+   "clang++": "WWW",
+   "g++": "WWW"
+  }
+ },
+ "witness_compiles": {
+  "01_pure": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "02_loop_mutate_local": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "03_calls_nonconstexpr": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "03b_calls_defined_nonconstexpr": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "03c_calls_nonconstexpr_member": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "04_calls_nonconstexpr_one_path": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "05_try_catch": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "06_static_local": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "06b_static_const_local": {
+   "clang++": "NNY",
+   "g++": "NNY"
+  },
+  "06c_static_constexpr_local": {
+   "clang++": "NNY",
+   "g++": "NNY"
+  },
+  "06d_thread_local_local": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "07_new_delete": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "08_std_string_local": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "09_std_vector_local": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "10_virtual": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "11_lambda": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "12_union_switch_active": {
+   "clang++": "NYY",
+   "g++": "YYY"
+  },
+  "12b_union_pun": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "13_reinterpret_cast": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "13b_reinterpret_cast_one_path": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "14_throw_one_path": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "14b_always_throw": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "15_member_mutation": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "16_ctor_init_list": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "16b_ctor_member_uninit": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "16c_ctor_function_try": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "17_uninit_local": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "18_template_dependent_call": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "18b_template_nondependent_nonconstexpr": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "19_memcpy": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "20_strlen": {
+   "clang++": "NNN",
+   "g++": "YYY"
+  },
+  "21_cmath_sqrt": {
+   "clang++": "NNN",
+   "g++": "YYY"
+  },
+  "21b_cmath_abs_int": {
+   "clang++": "NNN",
+   "g++": "YYY"
+  },
+  "21c_cmath_fabs": {
+   "clang++": "NNN",
+   "g++": "YYY"
+  },
+  "22_goto": {
+   "clang++": "NNY",
+   "g++": "NNY"
+  },
+  "23_asm": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "24_dynamic_cast": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "25_nonliteral_param_by_value": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "25b_nonliteral_param_by_ref": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "25c_nonliteral_return": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "26_member_of_nonliteral_class": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "27_decl_mismatch": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "28_write_through_pointer": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "29_read_global": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "29b_write_global": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "29c_read_thread_local": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "29d_read_const_global": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "30_pointer_index": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "31_optional_return": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "33_void_ptr_cast": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "34_atomic_local": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "35_std_swap": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "35b_std_find": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "35c_std_min": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "36_destructor": {
+   "clang++": "NYY",
+   "g++": "NYY"
+  },
+  "38_volatile_read": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "43_std_array_fill": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "48_assert_macro": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "50_errno": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "51_structured_binding": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "52_coroutine_like_placement_new": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "53_operator_hidden_call": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "54_implicit_conversion_hidden_call": {
+   "clang++": "NNN",
+   "g++": "NNN"
+  },
+  "55_string_view_param": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  },
+  "56_float_arith": {
+   "clang++": "YYY",
+   "g++": "YYY"
+  }
+ }
+}

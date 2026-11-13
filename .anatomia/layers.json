@@ -6,7 +6,8 @@
     {"glob": "cmake/**", "layer": "infrastructure"},
     {"glob": "tools/**", "layer": "infrastructure"},
     {"glob": "tests/**", "layer": "verification"},
-    {"glob": "examples/consumer/**", "layer": "application"}
+    {"glob": "examples/**", "layer": "application"},
+    {"glob": "CMakeLists.txt", "layer": "infrastructure"}
   ],
   "allow": {
     "domain": [],

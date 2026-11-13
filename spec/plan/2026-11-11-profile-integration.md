@@ -62,3 +62,7 @@ GCC diagnosed the inline function `schedule_web_auto_approve_locked` as used
 without a definition in those translation units. The original main Lorica
 configuration produced the same diagnostic compiling both units. Discutere
 registered 202 CTests, all unexecuted on this build.
+
+2026-11-13: Praesidium was not rerun after this integration; `tests/profiles/main.cpp`
+and `unit.c` had no manifest entry until then, so the repository-scope result in
+`2026-11-10-extended-hardening-evidence.md` no longer described the tree.

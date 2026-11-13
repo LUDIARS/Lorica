@@ -9,11 +9,13 @@ Components (C++17 unless noted, CMake 3.24+):
 | --- | --- |
 | `Lorica::boundary` | Checked size arithmetic, bounded byte views, cumulative request budgets |
 | `Lorica::boundary` (C++20 headers) | Checked integers of any type, bounded string copy/append/format, endian-safe byte reading ([checked APIs](spec/feature/checked-apis.md)) |
-| `Lorica::protection` | Dedicated OS read-only storage for immutable arithmetic/enum values |
+| `Lorica::protection` | Dedicated OS read-only storage: one immutable arithmetic/enum value per mapping (`sealed_value`), or many values, structures and tables in one sealed mapping (`sealed_pack`) |
+| `Lorica::contracts` | C++26 contract emulation (`LORICA_PRE` / `LORICA_POST` / `LORICA_CONTRACT_ASSERT`), four evaluation semantics, replaceable violation handler |
 | `lorica_harden_target` | Target-local baseline hardening, with an optional strict `EXTENDED` profile and a configure-time capability query |
 | `lorica_deprecate_unsafe_apis` | Uses of `strcpy`/`strcat`/`sprintf`/`vsprintf`/`wcscpy`/`wcscat` in a target's C++ sources fail to compile; every deprecation becomes an error; [limits](spec/feature/security-contracts.md#SPEC-LR-UNSAFE-API) |
 | `LoricaInject.cmake` | External CMake injection for an explicit target allowlist |
 | `tools/verify_binary.py` | Selected PE/ELF executable metadata checks; does not execute the binary |
+| `tools/lorica_analyze.py` | Assertion-style source gates read from C/C++ text: `complexity` (cyclomatic, cognitive, nesting, parameters, NLOC), `shared-state` (per-datum locksets, atomics and their memory orders) and `constexpr` (tries the specifier with GCC/Clang in a copy of the tree); thresholds and a baseline, exit 1 on violation; reports what it could not parse or resolve ([limits](spec/feature/source-analysis.md#SPEC-LR-ANALYZE)) |
 
 ## Use
 
@@ -23,26 +25,32 @@ target_link_libraries(my_service PRIVATE Lorica::boundary)
 lorica_harden_target(my_service)
 ```
 
-Or add this repository with `add_subdirectory`. No network fetch, package manager,
-install-time script, or third-party runtime is required. Installation uses CMake:
+Or add this repository with `add_subdirectory` (with `EXCLUDE_FROM_ALL` so your
+install does not ship Lorica's headers and package files). No network fetch,
+package manager, install-time script, or third-party runtime is required.
+`COMPONENTS protection` or `contracts` requires the compiled parts. Installation
+uses CMake; give the build type, or the shipped libraries are built unoptimized and
+without FORTIFY:
 
 ```sh
-cmake -S . -B build
-cmake --build build
-cmake --install build --prefix /your/prefix
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+cmake --install build --config Release --prefix /your/prefix
 ```
 
 Existing CMake projects can inject build protection without editing their source:
 
 ```sh
-cmake -S /service/source -B /service/build \
+cmake -S /service/source -B /service/build -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=/path/to/Lorica/cmake/LoricaInject.cmake \
   '-DLORICA_TARGETS=my_service;my_parser' \
   -DLORICA_PROFILE=extended -DLORICA_DEPRECATE_UNSAFE_APIS=ON   # optional
 ```
 
-Every listed target must exist and be locally compiled. Boundary checks still
-require call-site adoption; loading a DLL cannot retrofit them into arbitrary C++.
+Every listed target must exist and be locally compiled. Single-config generators need
+the build type: an empty one gets no FORTIFY, which EXTENDED does not refuse.
+Boundary checks still require call-site adoption; loading a DLL cannot retrofit
+them into arbitrary C++.
 The injection hook requires being the top-level configure and is not a dependency
 graph traversal. Explicitly list each source-built library requiring mitigation.
 
@@ -64,11 +72,12 @@ With C++20, the checked APIs cover the rest of a typical parser:
 #include <lorica/bounded_text.hpp>
 #include <lorica/byte_reader.hpp>
 #include <lorica/checked_integer.hpp>
+#include <cstdint>
 
 lorica::byte_reader in(packet);                   // std::span<const std::byte>
 const auto count = in.read_big_endian<std::uint32_t>();
 const auto name = in.read_prefixed<std::uint16_t, std::endian::big>();
-const auto total = count ? lorica::checked_multiply(*count, record_size) : std::nullopt;
+const auto total = count ? lorica::checked_multiply(*count, record_size) : std::nullopt; // record_size is std::uint32_t: both operands have one type
 char label[32];
 if (!name || !total || !lorica::format_into(label, "{} records", *count)) return reject_request();
 ```
@@ -95,14 +104,78 @@ double-free, invalid pointers, type confusion, or bypasses through raw pointers.
 It allocates/frees no memory. Budgets are request-local and are not thread-safe.
 Charges must precede work, include decompressed output and nested allocations,
 and use the same budget throughout the request. Depth must be supplied truthfully.
+The `size_t` functions of `checked_size.hpp` take operands converted by the
+language rules, so a negative or wider value is not detected; use `narrow` from
+`checked_integer.hpp`, or `-Wconversion -Wsign-conversion`.
 Timeouts, concurrency limits and authentication remain service responsibilities.
 
-Hardening supports Windows MSVC-compatible toolchains and Linux GCC/Clang.
+Hardening supports Windows MSVC-compatible toolchains and Linux GCC/Clang. The
+contracts runtime is hardened, so elsewhere configure with
+`-DLORICA_BUILD_CONTRACTS=OFF` (and `LORICA_BUILD_PROTECTION=OFF`) to use the
+header-only parts.
 It does not protect prebuilt dependencies, prove every object has instrumentation,
 or make a compromised process trustworthy. Later conflicting build flags can
 weaken protection: inspect actual commands and artifacts. No universal memory
 barrier, secure allocator, cryptography or authentication is implemented here.
 `std::atomic_thread_fence` (thread ordering) is unrelated to these protections.
+
+## Contracts (C++26 emulation)
+
+A contract states what holds in a correct program, much as an assertion does, with
+a role (precondition, postcondition, assertion) and an evaluation semantic chosen
+by the build. Link `Lorica::contracts`; deploy its one runtime DLL/shared object
+for the executable and all its plugins.
+
+Inside a function body (`<lorica/contracts.hpp>`):
+
+```cpp
+int element(std::span<const int> values, std::size_t index) {
+    LORICA_PRE(index < values.size());
+    return values[index];
+}
+constexpr int square(int v) { return LORICA_POST_RETURN(v * v, r, r >= 0); }
+```
+
+Each macro takes one condition; `LORICA_PRE(ok, "message")` does not compile, as
+the predicate text is the message.
+
+Laid over existing code from outside, without editing it
+(`<lorica/contract_overlay.hpp>`, [overlay](spec/feature/contracts.md#SPEC-LR-CONTRACT-OVERLAY)):
+
+```cpp
+int reserve(int in_stock, int requested);                     // existing, unchanged
+
+constexpr auto checked_reserve = LORICA_CONTRACT(reserve)
+    .pre([](int in_stock, int requested) { return requested >= 0 && requested <= in_stock; },
+         "request is covered by the stock")
+    .post([](int left, int in_stock, int requested) { return left == in_stock - requested; },
+          "what is left is the stock less the request");      // the result comes first
+
+const int left = checked_reserve(in_stock, requested);        // the same call, checked
+```
+
+The same conditions are the function's test. `test` reports instead of handling a
+violation and never makes a call the preconditions refuse:
+
+```cpp
+using lorica::contracts::test_status;
+require(static_cast<bool>(checked_reserve.test(10, 3)));
+const auto refused = checked_reserve.test(10, 11);            // reserve is not called
+require(refused.status == test_status::precondition_failed);
+require(std::string_view(refused.condition) == "request is covered by the stock");
+```
+
+Choose the semantic per target from the build, without editing sources:
+`lorica_set_contract_semantic(my_service enforce)` (the default; also `observe`,
+`quick_enforce`, and `ignore`, which strips the checks and leaves the plain call),
+or for an existing project `-DLORICA_CONTRACT_SEMANTIC=ignore` next to
+`LORICA_TARGETS` with `LoricaInject.cmake`, which replaces a semantic the project
+chose itself. Targets that share inline or template code containing contracts must
+get the same semantic (list them all in `LORICA_TARGETS`); otherwise which checks
+run is unspecified (P2900 mixed mode). Contracts catch bugs; they are not
+input validation, which must not disappear under `ignore`. `examples/contracts`
+runs one contract over a correct and a defective implementation as a test table.
+See [the contracts spec](spec/feature/contracts.md).
 
 ## Write-protected variables
 
@@ -117,16 +190,102 @@ The original bytes live in a dedicated OS mapping requested without execute acce
 before construction returns. There is no setter or mutable pointer. Only arithmetic
 and enum values are supported. OS allocation/protection errors throw; there is no
 writable fallback. Windows and Linux are supported by the implementation;
-platform test execution must be verified separately. Disable the compiled component
-explicitly with `LORICA_BUILD_PROTECTION=OFF` for boundary-only use.
+platform test execution must be verified separately. `LORICA_BUILD_PROTECTION=OFF`
+omits `Lorica::protection` and does not install its headers.
 
-This is appropriate for sparse immutable configuration, not every variable: each
-value consumes at least one page. A forbidden write faults the process. It does not
-protect copies, owner metadata or a process that can change its own permissions.
-It does not hide secrets, securely erase memory or protect unrelated allocations.
+This is appropriate for a handful of process-lifetime settings, not every
+variable: each value has its own mapping and at least one resident page, and Linux
+limits a process to `vm.max_map_count` mappings; use a sealed pack for more.
+Construct values inside `main` under try/catch; at namespace scope a failing
+constructor terminates before `main`. An ordinary forbidden write faults the
+process. It does not stop the process itself from zeroing the value with `madvise`,
+writing it through `/proc/self/mem` or `ptrace`, or using its own
+`mprotect`/`munmap`/`mmap(MAP_FIXED)`, and it does not protect copies or the owner
+object. It does not hide secrets, securely erase memory or protect unrelated allocations.
 The owner must outlive reads and be safely published to concurrent readers.
 See [the protection contract](spec/feature/sealed-values.md) for limits and suggested
 development tools (ASan, UBSan, TSan and fuzzing).
+
+## Sealed packs
+
+For structures, tables and more than a handful of values, stage them in a
+`pack_builder` and seal them into one read-only mapping (same link target,
+`<lorica/sealed_pack.hpp>`):
+
+```cpp
+lorica::pack_builder builder(1024);              // capacity from trusted configuration
+const auto limits = builder.add(service_limits{512, 1u << 20, 30, true});
+const auto table = builder.add_array(hex.data(), hex.size());
+if (!limits || !table) return false;             // did not fit: a value, not an exception
+const lorica::sealed_pack pack(std::move(builder)); // read-only when this returns
+const service_limits copy = pack.load(*limits);
+const std::optional<std::int8_t> digit = pack.at(*table, index); // empty when out of range
+```
+
+Reads return copies. A read whose slot lies outside the pack terminates; this
+bounds the read and does not tell whose slot it is. Sealing is shallow: memory a
+member points to is not protected. Values are unprotected until the pack is
+constructed. `examples/packing` reads a sealed configuration back and measures a
+pack against one `sealed_value` per value on your host; no number is promised.
+See [the pack contract](spec/feature/sealed-packs.md).
+
+## Source analysis
+
+`tools/lorica_analyze.py` reads C and C++ sources as text (Python 3 standard library,
+no compiler, nothing edited or executed) and fails like an assertion:
+
+```sh
+python3 tools/lorica_analyze.py complexity src include --max-cognitive 15 --max-cyclomatic 10
+python3 tools/lorica_analyze.py complexity src --write-baseline analysis-baseline.json   # adopt once
+python3 tools/lorica_analyze.py complexity src --strict --max-cognitive 15 --baseline analysis-baseline.json
+```
+
+Exit 0: within limits; 1: a function exceeds a threshold or got worse than the
+baseline; 2: usage error, unreadable input or, with `--strict`, an unparsed region.
+Every report states functions analysed, unparsed regions and lines not analysed.
+As a CTest gate:
+
+```cmake
+add_test(NAME myapp.complexity COMMAND ${Python3_EXECUTABLE}
+    ${LORICA_SOURCE_DIR}/tools/lorica_analyze.py complexity --strict --max-cognitive 15
+    --baseline ${CMAKE_CURRENT_SOURCE_DIR}/analysis-baseline.json ${CMAKE_CURRENT_SOURCE_DIR}/src)
+```
+
+`shared-state` reads the same sources for shared data. A memory barrier
+(`std::atomic_thread_fence`) never repairs a data race on a non-atomic object: shared
+plain data needs `std::atomic` or the same lock at every access. The tool lists
+each datum with the locks held at its accesses and fails on a finding kind once it
+has a limit:
+
+```sh
+python3 tools/lorica_analyze.py shared-state src include --all     # the per-datum table
+python3 tools/lorica_analyze.py shared-state src include --strict \
+    --max-inconsistent-locking 0 --max-unsynchronized 0 --max-relaxed-publication 0 --max-invalid-order 0
+```
+
+`lock:<names>` means consistent in the analysed files, not proven race-free; use
+ThreadSanitizer for evidence. Unresolved code is reported as `unknown`, never as
+safe. On Lorica it reports one atomic (`installed_handler`), one `thread_local` and
+one shared stream ([self-report](spec/plan/2026-11-13-shared-state-report.md)).
+
+`constexpr` tries the `constexpr` specifier with GCC or Clang in a temporary copy of
+the tree (never in your files) and reports, per compiler and standard, `rejected`,
+`accepted` (the compiler tolerates it: a necessary condition only, not verified) or
+`witnessed` (a `static_assert` witness you supply compiles with the change and fails
+without it: the only verified state). Without a compiler it only lists the functions
+not declared constexpr and why some are excluded. MSVC is not supported.
+
+```sh
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+python3 tools/lorica_analyze.py constexpr include src --compile-commands build/compile_commands.json \
+    --std 17 --std 20 --witnesses constexpr-witnesses.json --max-witnessed 0
+```
+
+`--max-witnessed 0` fails while a function proven convertible is not declared
+constexpr; `--emit-patch FILE` writes the diff for review (never applied).
+
+See [examples/analysis](examples/analysis/README.md) and the limits in
+[SPEC-LR-ANALYZE](spec/feature/source-analysis.md).
 
 See [security contracts](spec/feature/security-contracts.md),
 [verification](spec/test/verification.md), and [dependency review](DEPENDENCIES.md).

@@ -1,10 +1,11 @@
 """SPEC-LR-VERIFY: require the extended profile's stop, not just any failed child.
 
-Usage: hardening_fault.py <tests binary> fortified|unfortified
-The hardened standard library must stop an out-of-range element access and an
-empty optional's dereference; with fortified, glibc's _FORTIFY_SOURCE=3 must stop a
+Usage: hardening_fault.py <tests binary> stops|fortify|fortify-unchecked
+stops: the hardened standard library must stop an out-of-range element access and
+an empty optional's dereference. fortify: glibc's _FORTIFY_SOURCE=3 must stop a
 copy past a heap buffer of run-time size, with glibc's own message. A normal exit,
-another error, another check's stop or a timeout fails.
+another error, another check's stop or a timeout fails. fortify-unchecked: the
+build has no FORTIFY stop to check; exit 77 (skipped, never passed).
 """
 import os
 import signal
@@ -34,15 +35,19 @@ def stopped(binary, mode, argument, message=None):
 
 
 def main() -> int:
-    binary, fortification = sys.argv[1], sys.argv[2]
-    if fortification not in ("fortified", "unfortified"):
-        raise SystemExit(f"unknown fortification {fortification!r}")
+    binary, part = sys.argv[1], sys.argv[2]
+    if part not in ("stops", "fortify", "fortify-unchecked"):
+        raise SystemExit(f"unknown part {part!r}")
+    if part == "fortify-unchecked":
+        print("FORTIFY stop not checked: unoptimized configuration, Windows or AddressSanitizer")
+        return 77
     normal = subprocess.run([binary], timeout=15, check=False)
     if normal.returncode != 0:
         raise SystemExit(f"in-range run failed with {normal.returncode}")
-    checks = [("--element", "x", None), ("--empty-optional", "x", None)]
-    if fortification == "fortified" and os.name != "nt":
-        checks.append(("--copy", "x" * 64, b"buffer overflow detected"))
+    if part == "stops":
+        checks = [("--element", "x", None), ("--empty-optional", "x", None)]
+    else:
+        checks = [("--copy", "x" * 64, b"buffer overflow detected")]
     for mode, argument, message in checks:
         ok, code = stopped(binary, mode, argument, message)
         if not ok:

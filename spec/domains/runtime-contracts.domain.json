@@ -1,0 +1,14 @@
+{
+  "name": "runtime-contracts",
+  "description": "Check preconditions, postconditions and assertions of correct programs with the C++26 contract semantics (ignore, observe, enforce, quick_enforce) and a replaceable violation handler, written inside a function body or laid over an existing callable from outside, with the semantic selectable from the build; the overlay's conditions also serve as the callable's test oracle, shown by the contracts demo. Not input validation.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {"pathPattern": "(^|/)include/lorica/(contracts|contract_violation|contract_overlay)\\.hpp$"},
+    {"pathPattern": "(^|/)src/contract_violation\\.cpp$"},
+    {"pathPattern": "(^|/)cmake/LoricaContracts\\.cmake$"},
+    {"pathPattern": "(^|/)examples/contracts/(main\\.cpp|CMakeLists\\.txt)$"}
+  ],
+  "specRefs": ["spec/feature/contracts.md"],
+  "rationale": "Invariant violations (bugs) are a separate responsibility from rejecting hostile input; keeping them apart prevents validation from being compiled out with the ignore semantic."
+}

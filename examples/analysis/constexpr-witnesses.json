@@ -1,0 +1,10 @@
+{
+ "schema_version": 1,
+ "witnesses": {
+  "constexpr_sample.hpp::scaled(2)": "static_assert(scaled(3, 4) == 12);",
+  "constexpr_sample.hpp::address_of(1)": [
+   "constexpr int probe = 0;",
+   "static_assert(address_of(&probe) != 0);"
+  ]
+ }
+}
