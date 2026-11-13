@@ -133,7 +133,8 @@ rejection); the example does not claim service deployment.
 
 Committed `spec/domains/*.domain.json` describes six responsibilities:
 boundary-validation (including the C++20 checked APIs), build-hardening (including
-the extended profile and the unsafe API header), variable-protection,
+the extended profile and the unsafe API header), variable-protection
+(including sealed packs and their demo),
 artifact-inspection, contract-verification and consumer-integration. These definitions do not disable
 review gates or claim test execution. Header-only C++ and Python may not be
 represented in a given analyzer snapshot; the map records their responsibility

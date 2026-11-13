@@ -17,15 +17,31 @@ object representation and returns a value copy using memcpy; no typed object is
 constructed inside the mapping. Pointers, structures, mutable references and
 copy/move assignment are excluded. Ownership is noncopyable and nonmovable.
 The owner must outlive all reads; publish it to other threads using normal C++
-synchronization. No atomic/fence guarantee is added.
+synchronization. No atomic/fence guarantee is added. Structures, tables and many
+values belong in one [sealed pack](sealed-packs.md) instead.
 
-Threat model: blocks writes into the mapped data while its OS permissions remain
-read-only. It does not protect owner metadata, source/readback copies, secrets,
-freed mappings or an already-compromised process capable of changing permissions.
-An invalid write faults the process; this is not recoverable input validation.
-Each value costs at least one OS page. Use for sparse immutable settings, not
-every local variable. No guard-page, encryption, secure erasure or performance
-claim is made. No production service is automatically migrated.
+Threat model: an ordinary write through memory access to the sealed bytes faults
+the process; this is not recoverable input validation. A kernel-mediated write
+into them, such as `read(2)`, fails with an error (EFAULT) instead. The protection
+does not stop the process itself: its own `mprotect`, `munmap` or
+`mmap(MAP_FIXED)` over the mapping, writes through `/proc/self/mem`, or another
+process writing with `ptrace` (all observed on Linux).
+This is page protection, not Linux `mseal(2)`. It does not protect owner metadata,
+source/readback copies, secrets or freed mappings. Sealing is shallow: only the
+value's own bytes are protected, never memory they refer to, which is why pointers
+are excluded here.
+
+Limits: each value creates, protects and removes a mapping of its own, which can
+interrupt the process's other running threads, and keeps at least one page
+resident; once there are hundreds of values, reads slow down because each sits on
+its own page. Use for a handful of immutable settings, not every local variable.
+The kernel merges adjacent read-only mappings, but destroying very many values out
+of creation order splits them again, and once `vm.max_map_count` is reached the
+unmapping fails and the destructor calls `std::terminate` (observed on Linux with
+140,000 values, every other one destroyed, at the default limit 65,530). A pack is
+removed as one mapping and does not have this failure. No guard-page, encryption,
+secure erasure or performance claim is made. No production service is
+automatically migrated.
 
 Acceptance: copy reads preserve supported scalar values; compile-time exclusion
 of pointer and assignment APIs; OS query confirms read-only protection on Windows;
