@@ -12,8 +12,6 @@ time: on Linux add `-DCMAKE_BUILD_TYPE=Release` (and repeat with Debug), or the
 cmake -S . -B build-test -DLORICA_BUILD_TESTS=ON
 cmake --build build-test --config Release
 ctest --test-dir build-test -C Release --output-on-failure
-python tools/verify_binary.py build-test/Release/lorica_boundary_tests.exe
-# Linux: python tools/verify_binary.py build-test/lorica_boundary_tests
 cmake -S . -B build-fuzz -DCMAKE_CXX_COMPILER=clang++ -DLORICA_BUILD_FUZZER=ON
 cmake --build build-fuzz
 build-fuzz/lorica_boundary_fuzz -max_total_time=60
@@ -35,16 +33,21 @@ Fuzzing supplements these cases; it cannot prove absence of vulnerabilities.
 | `lorica.checked.cxx20`, `lorica.checked.cxx23` | `tests/checked.cpp` as C++20 and as C++23: integer, text and reader contracts as compile-time and run-time checks; every pair of 8-bit operands against the exact result in a wider type, and boundary cases of 32- and 64-bit types; that bool/character types, mixed operand types and explicit template arguments for all seven binary functions, `narrow` and `saturate_cast` (also next to `byte_view.hpp`'s `size_t` overloads), temporary and read-only destinations, arrays of unknown bound, `nullptr` and a temporary container for `byte_reader` do not compile; array sources by extent, a null pointer source, overlapping copies, formatted output holding a terminator, a throwing formatter, 4- and 8-byte reads. Built with the unsafe API rejection and the extended profile where supported |
 | `lorica.checked.format.cxx20`, `lorica.checked.format.cxx23` | The same executables with an argument: pass where the library defines `__cpp_lib_format`, otherwise reported as skipped (exit 77), so the `format_into` checks are never counted as passed without running |
 | `lorica.checked.runtime_format` | `tests/run_build_probe.cmake` builds a `format_into` call with a run-time `std::string` format, which must fail with "constant expression" (CWE-134); skipped where the library has no `<format>` |
-| `lorica.profiles.*` | Native Linux Ninja/Makefile consumers: configure, compile and compare C/C++ commands for baseline, direct EXTENDED, repeated calls and promotion. Simulated missing flag, lower libc level and unknown CPU, plus a real Release `-O0` override, check baseline continuation and explicit EXTENDED refusal. Multi-config commands are checked separately per generated configuration. |
-| `lorica.hardening_stops` | `tests/hardening.cpp` built with EXTENDED, driven by `tests/hardening_fault.py`: an in-range run exits 0; an out-of-range `operator[]` and an empty `optional`'s value must stop the child (POSIX SIGABRT/SIGILL/SIGTRAP, Windows 0xC0000409). In optimized Linux configurations the build must have `_FORTIFY_SOURCE` 3 (checked at compile time) and a `memcpy` past a heap buffer of run-time size, which only level 3 sees, must stop with glibc's "buffer overflow detected"; a stop by the stack protector or the heap's own checks does not count. A normal exit, another error or a timeout fails |
-| `lorica.unsafe_api.*` | `tests/unsafe_api_probes.cmake`: real targets with `lorica_deprecate_unsafe_apis` applied, each built by `tests/run_build_probe.cmake`, which judges by exit code and compiler output, not generator text. Bounded code must build; a direct `std::strcpy` call, a function pointer to it, a macro alias of `std::sprintf`, a parenthesized `::wcscat`, a `-D` alias of `std::strcat` and `std::vsprintf` must fail with the deprecation diagnostic; an earlier `-include` of a C library header must fail with the header's order error. The probes live in CMake, not a C++ source, because they are deliberately unsafe |
-| `lorica.unsafe_api.refusals` | `tests/unsafe_api_refusals.cmake`: projects whose target gets precompiled headers or a C source after the call must fail configuration with the refusal; the control must configure |
+| `lorica.profiles.*` | Native Linux Ninja/Makefile consumers: configure, compile and compare C/C++ commands for baseline (executable, shared and static library), direct EXTENDED, repeated calls and promotion, and each target's link options and PIC (full RELRO and NX stack for linked binaries, PIE for executables). The ordered `-U`/`-D` pairs must follow a toolchain's `-U_GLIBCXX_ASSERTIONS`. In Release, baseline must request FORTIFY 3 whenever the compiler itself reports level 3 at `-O2`, whatever Lorica's probes say. Single-config runs cover Release, Debug, empty, RelWithDebInfo and MinSizeRel. Simulated missing flag, lower libc level, unknown CPU, older compiler, 32-bit ABI, missing standard-library hardening and missing zero initialization, plus a real Release `-O0` override, check baseline continuation and explicit EXTENDED refusal; a second flag scope (Release `-O0`, an unknown flag) must not reuse the outer result. Multi-config commands are checked separately per generated configuration. `harness_control` injects nothing and must be reported as an unexpectedly successful strict configuration |
+| `lorica.hardening_stops` | `tests/hardening.cpp` built with EXTENDED, driven by `tests/hardening_fault.py`: an in-range run exits 0; an out-of-range `operator[]` and an empty `optional`'s value must stop the child (POSIX SIGABRT/SIGILL/SIGTRAP, Windows 0xC0000409). In optimized Linux configurations the build must have `_FORTIFY_SOURCE` 3 (checked at compile time) and a `memcpy` past a heap buffer of run-time size, which only level 3 sees, must stop with glibc's "buffer overflow detected"; a stop by the stack protector or the heap's own checks does not count. Under AddressSanitizer, which reports that copy first, the FORTIFY part is not checked (configuration says so). A normal exit, another error or a timeout fails. `lorica.hardening_stops.harness_control` (POSIX): a child that exits 1 instead of stopping must be reported |
+| `lorica.unsafe_api.*` | `tests/unsafe_api_probes.cmake`: real targets, hardened and built with `-Wno-error` so only Lorica's promotion makes the error, with `lorica_deprecate_unsafe_apis` applied, each built by `tests/run_build_probe.cmake`, which judges by exit code and compiler output, not generator text. Bounded code must build; a direct `std::strcpy` call, a function pointer to it, a macro alias of `std::sprintf`, a parenthesized `::wcscat`, a `-D` alias of `std::strcat`, `std::vsprintf`, `std::wcscpy`, a `strcpy` in a header that arrives only through a linked target's precompiled header, and (GCC/Clang) a call inside a `[[deprecated]]` function and one under a later `-Wno-deprecated-declarations` must fail with the Lorica diagnostic; an earlier `-include` of `<cstring>`, `<cstdio>` or `<cwchar>` must fail with the header's order error. The probes live in CMake, not a C++ source, because they are deliberately unsafe. Controls: `harness_reject_built` and `harness_reject_diagnostic` must be reported by the runner as a built probe and as a missing diagnostic |
+| `lorica.unsafe_api.refusals`, `lorica.build_refusals` | `tests/build_refusals.cmake` configures small projects. LR-BUILD-04: precompiled headers (own or `REUSE_FROM`), a C source or a source with `LANGUAGE C`, added after the call, Clang with glibc 2.40+ (simulated), MinGW and a non-Linux system (simulated) must fail configuration with the refusal; a C source added through a generator expression or a linked target must fail the build with the header's `#error`. LR-BUILD-01/02: a missing, INTERFACE, IMPORTED, ALIAS or custom target, an unknown argument, an unknown platform, a C-only project, injection without, with an empty or an unknown target list, an unknown profile and a removed request must fail configuration with the refusal; injection of two targets must apply the default profile to both, and, where supported, the extended profile and the rejection to both. `lorica.build_refusals.harness_control` must report a case that was accepted |
+| `lorica.hardening_applied` | Lorica's own libraries and the test targets that depend on a profile carry it (generator-time target properties) |
+| `lorica.verify_binary.*` | `unit`: `tests/test_verify_binary.py` with PE bytes, canned GNU and LLVM readelf text (including RUNPATH/SONAME strings that spell dynamic tags) and the tool's exit codes. `hardened`: the tool accepts `lorica_boundary_tests` (Linux, Windows x64). `elf.*` (Linux): fixtures linked here with full options are accepted; without PIE, with an executable stack, without RELRO, with lazy binding, or as a shared library each is rejected for that reason |
 
 Where the toolchain cannot apply EXTENDED (`lorica_extended_hardening_supported`)
 or the unsafe API rejection (`lorica_unsafe_api_rejection_supported`),
 configuration prints the reason, the affected tests are registered disabled and
 CTest reports them "Not Run (Disabled)", and the checked tests are built without
-that option: an unexecuted check is never reported as passed.
+that option: an unexecuted check is never reported as passed. On a host that is
+expected to run them, configure with `-DLORICA_TEST_REQUIRE_EXTENDED=ON`: a
+regression that makes EXTENDED unavailable then fails configuration instead of
+disabling tests.
 
 Recommended on Linux Clang, beyond the registered tests (no runtime library needed):
 `clang++ -std=c++23 -O1 -fsanitize=undefined,integer,implicit-conversion -fsanitize-trap=all -fsanitize-ignorelist=<std headers> -Iinclude tests/checked.cpp`.
@@ -73,7 +76,8 @@ no-exception, time-bounded run over a whole header tree.
 Required release checks: Windows MSVC x64 and Linux GCC/Clang builds; tests;
 sanitizers on Linux; fuzz corpus including SIZE_MAX; separate consumer using
 installed find_package; external injection with missing/empty/valid target lists;
-binary verifier positive and intentionally unhardened/malformed negative fixtures.
+binary verifier positive and intentionally unhardened/malformed negative fixtures
+(registered as `lorica.verify_binary.*`).
 Inspect compile/link commands and each shipped dependency. PE flag checking is
 not equivalent to CFG table or instruction coverage verification.
 
@@ -108,7 +112,8 @@ for ASan and TSan. `lorica.protection_write_misdirected` is the control: the sam
 child judged against another address must be rejected by the driver. Other errors,
 normal exits and timeouts fail the check. Crash UI/core dumps are disabled in this
 child. `lorica.protection_consumer` installs the build to a scratch prefix and
-builds and runs `examples/consumer` against it with `LoricaInject.cmake`. These
+builds and runs `examples/consumer` against it with `LoricaInject.cmake`, then
+builds `examples/contracts` against the same prefix and runs its tests. These
 tests must run in the review environment; merely compiling them does not verify OS
 enforcement. Sanitizer runs are recorded in
 `spec/plan/2026-11-13-protection-review-evidence.md`.
