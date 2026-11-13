@@ -132,6 +132,8 @@ TREE = {
     "include/lib/a.hpp": '#pragma once\n#include "b.hpp"\n',
     "include/lib/b.hpp": ('#pragma once\nint add(int a, int b) { return a + b; }\n'
                           'extern "C" inline int c_api(int a) { return a; }\n'
+                          'inline int unwitnessed(int a) { return a; }\n'
+                          'inline int vacuous(int a) { return a; }\n'
                           '#ifdef _WIN32\nint windows_only(int a) { return a; }\n#endif\n'),
     "src/u.cpp": "#include <lib/a.hpp>\nint user() { return add(1, 2) + c_api(3); }\n",
 }
@@ -149,7 +151,8 @@ class CopiedTree(unittest.TestCase):
         self.database(["src/u.cpp"])
         (self.root / "w.json").write_text(json.dumps({"schema_version": 1, "witnesses": {
             "include/lib/b.hpp::add(2)": "static_assert(add(1, 2) == 3);",
-            "include/lib/b.hpp::c_api(1)": "static_assert(c_api(4) == 4);"}}), encoding="utf-8")
+            "include/lib/b.hpp::c_api(1)": "static_assert(c_api(4) == 4);",
+            "include/lib/b.hpp::vacuous(1)": "static_assert(true || vacuous(1));"}}), encoding="utf-8")
 
     def database(self, names):
         (self.root / "compile_commands.json").write_text(json.dumps([{
@@ -166,7 +169,8 @@ class CopiedTree(unittest.TestCase):
     def test_relative_include_reaches_the_mutated_copy(self):
         status, data, states = self.run_tool()
         self.assertEqual(status, 0, data["errors"])
-        self.assertEqual(states, {"add": "witnessed", "c_api": "witnessed", "windows_only": "inactive"})
+        self.assertEqual(states, {"add": "witnessed", "c_api": "witnessed", "unwitnessed": "accepted",
+                                  "vacuous": "accepted", "windows_only": "inactive"})
 
     def test_poisoned_copy_fails_the_compile(self):
         from lorica_analysis.constexpr_overlay import Overlay

@@ -374,6 +374,7 @@ template <class T> int tmpl(T t) { return t; } // FAKE_NAME(tmpl)
 int windows_only(int a) { return a; } // FAKE_NAME(windows_only)
 #endif
 int run_time(int a) { return a; } // lorica-analyze: ignore(constexpr) needs the clock
+int unwitnessed(int a) { return a; } // FAKE_NAME(unwitnessed) FAKE_CONSTANT (constant, but no witness)
 """
 WITNESSES = {"lib/b.hpp::add(2)": "static_assert(add(1, 2) == 3);",
              "lib/b.hpp::log_value(1)": "static_assert(log_value(1) == 1);",
@@ -438,7 +439,8 @@ class TrialTests(unittest.TestCase):
         self.assertEqual({n: s for n, (s, _) in states.items()}, {
             "add": "witnessed", "log_value": "accepted", "bad": "rejected", "base": "rejected",
             "caller": "rejected", "risky": "rejected", "calls": "rejected", "twice": "witnessed",
-            "tmpl": "accepted", "windows_only": "inactive"})
+            "tmpl": "accepted", "windows_only": "inactive", "unwitnessed": "accepted"})
+        self.assertEqual(states["unwitnessed"][1], "necessary condition only, not verified: no witness")
         self.assertIn("witness does not compile", states["log_value"][1])
         self.assertIn("non-constant condition", states["log_value"][1])
         self.assertIn("also compiles without the change", states["tmpl"][1])
@@ -543,7 +545,7 @@ class TrialTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(self.fake.calls, [])
         self.assertIn("nothing was compiled (no --compiler and no --compile-commands): no function is "
-                      "reported as rejected, accepted or witnessed\nnot tried: 10\n", out)
+                      "reported as rejected, accepted or witnessed\nnot tried: 11\n", out)
         self.assertIn("    not tried %s:12 tmpl (hidden: template)\n" % (self.root / "include/lib/b.hpp"), out)
         self.assertIn("    excluded %s:16 run_time: suppressed: needs the clock\n" % (self.root / "include/lib/b.hpp"),
                       out)
