@@ -1,9 +1,9 @@
 {
   "name": "contract-verification",
-  "description": "Exercise arithmetic extremes, byte-view and reader bounds, budget rejection, bounded text, the extended profile's program stops, unsafe API rejection and malformed artifact metadata; expose a libFuzzer callback for instrumented testing.",
+  "description": "Exercise arithmetic extremes, byte-view and reader bounds, budget rejection, bounded text, the build profiles and the extended profile's program stops, unsafe API rejection, build and injection refusals, contracts and overlays under each semantic and across modules, sealed values and packs, the installed consumer and malformed artifact metadata; expose a libFuzzer callback for instrumented testing.",
   "presetRules": [],
   "templateRules": [],
-  "membership": [{"pathPattern": "(^|/)tests/[^/]+\\.(cpp|py|cmake)$"}],
+  "membership": [{"pathPattern": "(^|/)tests/[^/]+\\.(cpp|py|cmake)$"}, {"pathPattern": "(^|/)tests/(contract_modules|profiles)/[^/]+$"}],
   "specRefs": ["spec/test/verification.md"],
   "rationale": "Tests specify observable contract behavior and are not production callers. LLVMFuzzerTestOneInput is called by libFuzzer, not an unused application function."
 }

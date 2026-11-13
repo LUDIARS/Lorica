@@ -1,6 +1,6 @@
 {
   "name": "source-analysis",
-  "description": "Read C and C++ sources as text, without a compiler, and extract functions failing closed to unparsed regions; measure per-function complexity and gate it like an assertion with thresholds, a baseline and reasoned suppressions; its own tests, fixtures and adoption example.",
+  "description": "Read C and C++ sources as text and extract functions failing closed to unparsed regions; gate per-function complexity, shared state and its synchronization, and constexpr convertibility (tried with GCC or Clang in a copy of the tree, the only subcommand that starts a compiler) like an assertion with thresholds, a baseline and reasoned suppressions; its own tests, fixtures and adoption example.",
   "presetRules": [],
   "templateRules": [],
   "membership": [

@@ -3,7 +3,7 @@
   "description": "Apply explicit compiler/linker mitigations (baseline and extended profiles) and unsafe C API rejection to locally built targets, and distribute the library as a CMake package; reject unsupported configurations.",
   "presetRules": [],
   "templateRules": [],
-  "membership": [{"pathPattern": "(^|/)cmake/[^/]+\\.(cmake|in)$"}, {"pathPattern": "^CMakeLists\\.txt$"}, {"pathPattern": "(^|/)include/lorica/unsafe_api\\.hpp$"}],
+  "membership": [{"pathPattern": "(^|/)cmake/(LoricaHardening\\.cmake|LoricaInject\\.cmake|LoricaConfig\\.cmake\\.in)$"}, {"pathPattern": "^CMakeLists\\.txt$"}, {"pathPattern": "(^|/)include/lorica/unsafe_api\\.hpp$"}],
   "specRefs": ["spec/feature/security-contracts.md"],
   "rationale": "Build policy is independent of runtime input validation and cannot retrofit precompiled dependencies."
 }
