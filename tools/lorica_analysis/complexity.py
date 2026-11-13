@@ -272,6 +272,7 @@ class _Body:
                 k = self._close(k) + 1
                 continue
             if text == "{":
+                self._close(k)
                 self.braces(k, nest, class_key, in_class)
                 k, class_key = self.m[k] + 1, False
                 continue

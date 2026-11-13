@@ -11,8 +11,8 @@ Function bodies are never scanned as declarations.
 
 Fail-closed contract: what the scanner cannot classify becomes an unparsed Region
 (file, line, end_line, reason), raised when
-  1. a skipped non-function brace block holds `;` or if/for/while/switch/return/do
-     at its own depth (a class or function read as an initializer);
+  1. a skipped non-function brace block holds `;`, if/for/while/switch/return/do
+     or `name(...) {` at its own depth (a class or function read as an initializer);
   2. a control keyword appears at namespace or class scope (a macro opened a body);
   3. bracket kinds mismatch, 4. a bracket is unclosed or a closer stray;
   5. a head has parentheses but no recognisable declarator (K&R definitions,
@@ -26,7 +26,8 @@ is the index of the bracket matching the ( [ { ) ] } at i, or -1. Function.body 
 (open, close): the indices of the body's `{` and of the last `}` (the last handler
 for a function-try-block). Walk a body with
     i = open + 1
-    while i < close: ... skip a group with i = match[i] + 1 ...
+    while i < close: ... skip a group with i = match[i] + 1 (match is -1 for an
+    opener that a region already reports) ...
 Function.lambdas lists every lambda in the body, nested ones included, in source
 order, each with the indices of its `[`, its parameter list and its body.
 """
@@ -241,7 +242,11 @@ class _Extractor:
         while k < close:
             token = self.tokens[k]
             if token.kind == PUNCT and token.text in _OPENERS:
-                k = self.match[k] + 1
+                after = max(k + 1, self.match[k] + 1)
+                if (token.text == "(" and after < close and self.tokens[after].text == "{"
+                        and self.tokens[k - 1].kind == IDENTIFIER):
+                    return token.line           # name(...) { : a function definition
+                k = after
                 continue
             if (token.kind == PUNCT and token.text == ";") or (
                     token.kind == KEYWORD and token.text in _STATEMENT):
@@ -546,7 +551,7 @@ class _Extractor:
         while k < close:
             token = tokens[k]
             if token.kind == PUNCT and token.text in _OPENERS:
-                k = self.match[k] + 1
+                k = max(k + 1, self.match[k] + 1)
                 continue
             if token.text == "<" and tokens[k - 1].kind == IDENTIFIER:
                 angle += 1
@@ -573,14 +578,14 @@ class _Extractor:
                 end = self._angle_end(j, close)
                 j = j if end is None else end + 1
             if j < close and tokens[j].text == "(":
-                parameters, j = (j, match[j]), match[j] + 1
+                parameters, j = (j, match[j]), max(j + 1, match[j] + 1)
             while j < close:
                 text = tokens[j].text
                 if text == "{" and tokens[j].kind == PUNCT:
                     found.append(Lambda(token.line, k, parameters, (j, match[j])))
                     break
                 if text in "([" and tokens[j].kind == PUNCT:
-                    j = match[j] + 1
+                    j = max(j + 1, match[j] + 1)
                     continue
                 if text in (";", ",", ")", "]", "}", "="):
                     break
