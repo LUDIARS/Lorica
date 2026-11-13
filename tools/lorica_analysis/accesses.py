@@ -24,6 +24,7 @@ without an execution policy) keeps the lockset; any other body has an empty lock
 because it may run later or on another thread. The callable of std::call_once is
 initialisation.
 """
+import bisect
 from typing import Dict, FrozenSet, List, NamedTuple, Optional, Tuple
 
 from .declarations import angle_end, parse_declaration, spell
@@ -145,7 +146,6 @@ class _Walker:
 
     # -- the declaration head: parameters and a reference/pointer return type
     def _head(self, lines: List[int]) -> None:
-        import bisect
         t, f = self.t, self.f
         open_ = f.body[0]
         lo = bisect.bisect_left(lines, f.start_line, 0, open_)

@@ -157,7 +157,147 @@ no markdown output.
 
 ## Shared state and synchronization
 
-Not implemented yet: evidence findings on declared shared state, built on the extractor.
+Human question (2026-11-12): can each function run in parallel, and does it need a
+memory barrier? The answer, in plain words, as the tool and its reports state it:
+**a memory barrier (std::atomic_thread_fence) never repairs a data race on a
+non-atomic object.** A fence orders nothing by itself; it gives happens-before only
+together with an atomic object that the writer modifies after a release fence and
+the reader loads before an acquire fence, which is the same as release/acquire on
+that atomic. For plain shared data, "needs a barrier" means: make it `std::atomic`
+or guard every access with the same lock. Publishing data to another thread needs a
+happens-before edge (release/acquire, a lock, thread start/join, `std::call_once`).
+Whether a function can run in parallel is not a property of the function alone
+(the same getter races or not depending on its caller), so the tool reports per
+datum, and per function only how it shares state. The memory-safety half of the
+question is answered by a separate manual audit, not by this tool.
+
+The design follows the concurrency design review (43 two-thread fixtures under GCC
+ThreadSanitizer, decision rules C1 to C16) where it is the smaller choice, and the
+parsing review's "evidence on declared shared state" otherwise: no per-function
+safety verdict, no memory-safety indicators, no declared-contract comments, no
+`dclp-non-atomic` or `cas-failure-relaxed` rule (the unlocked read of double-checked
+locking is an `inconsistent-locking` datum; a relaxed compare-exchange failure order
+is `relaxed-publication`), static-local writes are `unsynchronized` like globals.
+
+```sh
+python3 tools/lorica_analyze.py shared-state [paths...] [--max-<finding> N]... [--baseline FILE]
+    [--write-baseline FILE] [--strict] [--json] [--all]
+```
+
+Lexical, per analysed file set: not a proof of the absence of data races. The files
+are judged together (a class in a header, its members in a source file). Nothing
+fails without a limit or a baseline; `--max-<finding> 0` fails on a finding kind,
+`--max-unknown 0` also on anything unresolved. Baseline, suppression comments (on the
+declaration line of a datum or the head of a function), `--strict` and exit codes are
+those of the complexity gate. The coverage line counts functions and data separately.
+
+**Per datum** (the primary result, one row per non-const member, global, static
+member, static local and thread_local, `--all` or `--json`): the lexical lockset of
+every access (`read`, `write`, `rmw`, `call` = passed on or a member call that may
+write, `escape` = returned by reference, `atomic`) and a `synchronization` value:
+
+| synchronization | Meaning |
+| --- | --- |
+| `not-needed` | not accessed, read-only in the set, initialised only, or thread_local |
+| `caller-must-synchronize` | a member never locked: the object is caller-synchronized |
+| `lock:<names>` | every access holds these locks: consistent in the analysed set, the strongest positive statement made |
+| `atomic:<orders>` | a std::atomic, judged per operation; on plain data, `atomic:<flag>` means published by that atomic |
+| `inconsistent` | some accesses hold a lock and others another or none (finding) |
+| `missing` | a global or static written with no lock anywhere (finding) |
+| `unknown` | a lockset, a lock name or a write could not be resolved; never counted as safe |
+
+**Per function** a `sharing` value (no-shared-state < caller-synchronized:read <
+caller-synchronized:write < self-synchronized(unverified) < unknown < thread-hostile),
+joined over its own accesses and the callees resolved in the set (fixed point;
+overloads join), and flags `shared-stream` (a message from two or more output calls
+on standard streams can interleave), `process-global-effect` (mmap, mprotect,
+VirtualProtect, signal, setenv, ...), `atomicity-suspect` (`n = n + 1` on an
+atomic: lost updates, no data race), `fence: manual review`. A caller-synchronized
+value means: safe only if the caller excludes concurrent writers of the same object
+([res.on.data.races]). Calls through a pointer, a parameter, `std::invoke`/`apply`,
+a macro or a name outside the set make a function `unknown`; `std::` functions and a
+short C library list are taken to touch only their arguments.
+
+| Finding | Rule (review) |
+| --- | --- |
+| `inconsistent-locking` | a datum accessed under different locks or none (C9 f11, C10 f14, C11 f16, lambdas f24) |
+| `unsynchronized` | a global, static member or static local written, never locked (C3 f04, C12 f18b, C16 f23) |
+| `write-under-shared-lock` | a write holding only `std::shared_lock` (C10 f25) |
+| `reference-escapes-lock` | a reference, pointer, iterator or `data()` returned from inside the lock (C10 f17) |
+| `const-writes-mutable` | a const member function writes a `mutable` member with no lock (C2 f01) |
+| `lock-not-held` | `G<M>(m);` (declares m), `G<M>{m};` (temporary), no mutex, `std::defer_lock` never used (C10 f13) |
+| `relaxed-publication` | a relaxed side of an atomic that publishes or guards data: writer relaxed, or reader relaxed outside a lock, including a compare-exchange failure order (C6 f08 f09b, C7 f26, C9 f12b) |
+| `invalid-order` | load(release/acq_rel), store(acquire/consume/acq_rel), compare-exchange failure release/acq_rel (C7) |
+| `fence-without-atomic` | a fence in a function with no atomic operation (f10b) |
+| `mt-unsafe-call` | strtok, rand, localtime, gmtime, asctime, ctime, setlocale, setenv, putenv, tmpnam, getpwnam, gethostbyname, inet_ntoa, strsignal, with the replacement (C14) |
+| `unknown` | per function or datum, counted; fails only with `--max-unknown` |
+
+Rules. Locks: `lock_guard`, `unique_lock`, `scoped_lock`, `shared_lock` named
+`NAME(args)`, `NAME{args}` or `auto NAME = G(args)`, held to the end of the block;
+after a later use of NAME (unlock, release, move; not a condition-variable wait) and
+after try_to_lock or `std::lock` the lockset is unknown; a manual `m.lock()` holds
+until `m.unlock()` in the same block with no jump between, otherwise unknown; a
+mutex given by a call expression has an unknown name; `std::call_once(flag, ...)`
+holds the pseudo-lock `call_once(flag)` to the end of the block (C4). Lambdas keep
+the lockset only when invoked in place or passed to a synchronous callee (algorithms
+without an execution policy, `std::invoke`, a condition-variable predicate); any
+other lambda body has an empty lockset (f24). Exempt as initialisation: constructors
+and destructors of the datum's class unless `this` is passed on, the callable of
+`call_once`, the initialiser of a static local (C3, C4, C11). Locks held at every
+call site propagate into callees in an unnamed namespace, static free functions and
+private members. Shadowing: parameters, obvious local declarations (`T x`, `T* x`,
+`auto& x :`, structured bindings, catch parameters, `T a, x;`) to the end of their
+block or statement. Atomics by role: an atomic publishes or guards data when it
+holds a pointer, when a function writes shared data and then stores it, or tests it
+in a condition and then accesses shared data; a counter (`fetch_add`, `++`) never
+does, and any order is fine for it (C6 f07). Only such an atomic's relaxed sides are
+findings, never in a function with a fence (f10, manual review); an omitted order is
+seq_cst and never a finding. Plain data accessed before a publishing store or after
+an observing load of such an atomic in the same function counts as synchronised by
+it. A thread_local whose address escapes is unknown (C5 f06b).
+
+Known false negatives: anything reached through pointers, references or another
+object (`other.m_`, the pointee of a `shared_ptr` or of a member pointer), base-class
+members, globals declared outside the set, accesses in files not given, macros (not
+expanded) and inactive `#if` branches, types it cannot see (`auto`, typedefs,
+template parameters: atomic- or mutex-ness unknown), locks held by callers of public
+functions, custom lock types (`__gthread_mutex_lock`, wrappers), virtual dispatch to
+overriders outside the set, implicit copy/move assignment writing members,
+publication through `fetch_add` with release order, `sync_with_stdio(false)`,
+object lifetime and destruction races, deadlock and lock order, atomicity
+violations other than C8; `std::atomic_ref`, `__atomic_*` and `Interlocked*` on
+plain variables are not recognised. Known false positives: objects that never leave
+one thread, globals written only before threads start, correct publication through
+`fetch_add` or through a custom primitive, custom lock types, a datum passed to a
+call that only reads it (`call` counts as a possible write; `unknown`, not a
+finding, when no plain write is seen), joins over a member call to an object other
+than `this`.
+
+Modules: `declarations.py` (classes, data members, globals and statics outside
+bodies; private member functions; reuses the extractor's head classification),
+`accesses.py` (per body: accesses, locksets, calls, guards, lambdas, static locals),
+`shared_state.py` (resolution over the set, atomic roles, the datum table, sharing,
+findings as gate entries). `tools/lorica_analyze.py` gives a subcommand an optional
+`finish` step after every file, so that a set-level analysis returns its entries.
+
+Verification (`tests/analysis/test_shared_state.py`, `lorica.analysis.shared_state`):
+38 fixtures in `tests/analysis/fixtures/shared_state/`, one or more per decision rule, each
+with exact `// expect:` lines for every datum, every finding and the listed sharing
+values and flags; mutations of six clean fixtures (guard removed, order weakened)
+must add a finding; access kinds, lock-region ends, guard variants, lambda locksets,
+shadowing, atomic roles and declarations; the gate (exit codes, `--max-unknown`,
+baseline, suppression, JSON, `--strict`, a header and a source judged together);
+Lorica's own `include/` and `src/` (exactly two non-member data, no finding, one
+shared stream); random and truncated input; linear time; optionally a whole header
+tree (`LORICA_ANALYSIS_SYSTEM_HEADERS`). `lorica.analysis.example.shared_state` and
+`.baseline` run the adoption example. Opt-in (`-DLORICA_ANALYSIS_TSAN_ORACLE=ON`),
+`lorica.analysis.shared_state.tsan` (`tests/analysis/tsan_oracle.py`) builds every
+`// tsan: race|clean` line into a two-thread driver (spin gate, volatile sink, no
+shared_ptr on the path, up to five runs) with `g++ -std=c++17 -O1 -g
+-fsanitize=thread` and requires agreement; it exits 77 (skipped) when the compiler
+cannot run TSan programs; `not-observable(reason)` lines (invalid orders, `n = n + 1`,
+strtok, fences, an escaping `this`, a K&R definition) are listed and not run.
+Self-report: `spec/plan/2026-11-13-shared-state-report.md`.
 
 ## constexpr
 
