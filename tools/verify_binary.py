@@ -42,13 +42,18 @@ def verify_elf(path, readelf):
     output = result.stdout
     if not re.search(r"Type:\s+DYN\b", output):
         raise ValueError("executable is not position independent")
+    # Dynamic entries by tag, so text in RUNPATH or SONAME strings matches nothing.
+    dynamic = dict(re.findall(r"^\s*0x[0-9a-fA-F]+\s+\((\w+)\)[ \t]*(.*)$", output, re.M))
     # FLAGS_1 PIE distinguishes an executable from an ordinary shared library.
-    if not re.search(r"\(FLAGS_1\).*\bPIE\b", output):
+    if not re.search(r"\bPIE\b", dynamic.get("FLAGS_1", "")):
         raise ValueError("ELF PIE executable marker missing")
     stack = next((line.split() for line in output.splitlines() if line.lstrip().startswith("GNU_STACK")), None)
     if not stack or "E" in "".join(stack[6:-1]):
         raise ValueError("non-executable GNU_STACK required")
-    if "GNU_RELRO" not in output or not re.search(r"\(BIND_NOW\)|\((?:FLAGS|FLAGS_1)\).*\b(?:BIND_NOW|NOW)\b", output):
+    relro = any(line.lstrip().startswith("GNU_RELRO") for line in output.splitlines())
+    now = ("BIND_NOW" in dynamic or re.search(r"\bBIND_NOW\b", dynamic.get("FLAGS", ""))
+           or re.search(r"\bNOW\b", dynamic.get("FLAGS_1", "")))
+    if not relro or not now:
         raise ValueError("full RELRO requires GNU_RELRO and immediate binding")
     print("ELF PIE/NX-stack/full-RELRO metadata present (instruction coverage not verified)")
 

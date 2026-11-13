@@ -82,7 +82,9 @@ allocate nothing, keep no state and check every bound before writing or reading;
 integer checks run before each operation. The extended profile adds compiler,
 standard-library and C-library modes shipped with the toolchain (libstdc++/libc++/
 MSVC STL hardening, glibc FORTIFY), no package. `<lorica/unsafe_api.hpp>` declares six C
-library functions deprecated, `#undef`s object-like macros of those names and
-re-exports them in `namespace std` (needed for Clang); it reads glibc's
-`<features.h>`, changes no definition and affects compilation only. Runtime tests and Linux validation remain separately
+library functions deprecated and `#undef`s object-like macros of those names; it
+changes no definition and affects compilation only. With Clang it reads glibc's
+`<features.h>` before the unit's first line, so feature-test macros must be given on
+the command line there (checked with libstdc++ 13, GCC 13 and Clang 18; libc++ not
+checked). Runtime tests and Linux validation remain separately
 recorded; successful Windows compilation is not evidence of those checks.

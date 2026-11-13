@@ -52,10 +52,13 @@ the same target property to select a single libc++ mode at generation time.
 
 FORTIFY qualification uses the effective `__USE_FORTIFY_LEVEL` from libc headers.
 Debug, empty and custom configuration names receive no Lorica FORTIFY override.
-Where Lorica selects a level or libc++ mode, its ordered undefine/define pair
-replaces earlier definitions. C sources receive only the applicable C options.
+Where Lorica selects a FORTIFY level, the libc++ mode or `_GLIBCXX_ASSERTIONS`, its
+ordered undefine/define pair follows the toolchain's flags and replaces earlier
+definitions. C sources receive only the applicable C options; the functions need
+the CXX language enabled and refuse a C-only project.
 Use consistent library settings across translation units that share inline code.
-The probes describe the configured toolchain. Target-specific sysroots, later
+The probes describe the configured toolchain and run again on every CMake run (about
+a second), so a cache entry cannot stand in for a probe. Target-specific sysroots, later
 flags and prebuilt dependencies require inspection of the final build commands.
 
 On Windows, baseline uses `/GS /sdl /guard:cf` for compilation,
@@ -82,7 +85,12 @@ error, including uses a word search misses: through a macro or a `-D` alias, wit
 and Clang force-include `<lorica/unsafe_api.hpp>` and make deprecation warnings
 errors; the header declares the functions deprecated before the C library does,
 with glibc's exception specification, so glibc's own declarations and the inline
-wrappers of a fortified build inherit the attribute. MSVC turns deprecation
+wrappers of a fortified build inherit the attribute. Clang reports no deprecation
+inside a declaration that is itself deprecated, so with Clang the declarations also
+carry a `diagnose_if` warning, made an error the same way. The header ends by making
+deprecation an error for the rest of the unit, so a later
+`-Wno-deprecated-declarations`, also one a linked target exports, does not switch
+it off. MSVC turns deprecation
 warning C4996, which the UCRT gives these functions, into an error (`/we4996`);
 defining `_CRT_SECURE_NO_WARNINGS` disables it there. Either way every deprecation
 in the target becomes an error, not only these six: the project's own
@@ -90,33 +98,41 @@ in the target becomes an error, not only these six: the project's own
 not declared at all since C11/C++14.
 
 Fail closed: the function refuses, at configuration, clang-cl (which ignores
-`/we4996`), MinGW (whose C library deprecates nothing), Clang with glibc 2.40 or
+`/we4996`), MinGW (whose C library deprecates nothing), GCC and Clang outside Linux,
+Clang with glibc 2.40 or
 newer (whose fortified functions are separate `pass_object_size` overloads no
 earlier declaration reaches), a target with C sources and a target with
 precompiled headers (CMake compiles them as system headers, where deprecations
 are not reported), checked when the top-level directory is done, so sources and
-headers added later count. `lorica_unsafe_api_rejection_supported(<var>)` tells a
+headers added later count. Precompiled headers inherited from linked targets are
+switched off for the target (`DISABLE_PRECOMPILE_HEADERS`). With GCC and Clang, C
+units get the header too, so a C source the check cannot see (added through a generator expression or a
+linked target's sources) stops at its `#error`.
+`lorica_unsafe_api_rejection_supported(<var>)` tells a
 caller in advance. The header itself stops compilation when a C library header
 came before it (for example through an earlier `-include`), and on a fortified
 Clang/glibc 2.40+ build that got past configuration.
 
 Not covered: compiler builtins (`__builtin_strcpy`, `__builtin___sprintf_chk`),
 glibc's `__*_chk` entry points, headers on system include paths (`-isystem`,
-imported targets by default) and the macros they define, and code that switches
-the warning off (`#pragma GCC diagnostic ignored`, a later
-`-Wno-deprecated-declarations`). Revisor's Praesidium policy rules remain the
+imported targets by default) and the macros they define, project headers that mark
+themselves `#pragma GCC system_header`, a declaration bound to one of the six
+symbols under another name (an asm label; with GCC also an `extern "C"`
+redeclaration in another namespace), and code that switches the warning off
+(`#pragma GCC diagnostic ignored` in the source, `-w` anywhere on the command
+line). Revisor's Praesidium policy rules remain the
 review-time check for those spellings and pragmas, and for other dangerous calls
 (`memcpy` with a wrong size, `scanf("%s")`). Set `NO_SYSTEM_FROM_IMPORTED` where
 third-party headers must be checked too.
 
 Replacements: `lorica::copy_string`, `lorica::append_string` and
 `lorica::format_into` ([checked APIs](checked-apis.md)), or `std::snprintf` and
-`std::vsnprintf`. The header `#undef`s object-like macros of the six names and
-re-exports them in `namespace std` (Clang attaches the attribute to the `std::`
-names only so); this names the same functions the standard headers export and
-is a build-time check only. It reads glibc's `<features.h>`, which declares no
-function. It is C++ only and not for C++20 module units, which cannot take a
-force-included header.
+`std::vsnprintf`. The header `#undef`s object-like macros of the six names and is
+a build-time check only. With Clang it reads glibc's `<features.h>` before the
+unit's first line, which fixes glibc's feature selection there: give feature-test
+macros (`_FORTIFY_SOURCE`, `_FILE_OFFSET_BITS`, `_TIME_BITS`) on the command line,
+not in the source. It is C++ only and not for C++20 module units, which cannot take
+a force-included header and fail to compile.
 
 ## Installed consumer contract {#SPEC-LR-CONSUMER}
 

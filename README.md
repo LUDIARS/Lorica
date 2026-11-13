@@ -25,13 +25,17 @@ target_link_libraries(my_service PRIVATE Lorica::boundary)
 lorica_harden_target(my_service)
 ```
 
-Or add this repository with `add_subdirectory`. No network fetch, package manager,
-install-time script, or third-party runtime is required. Installation uses CMake:
+Or add this repository with `add_subdirectory` (with `EXCLUDE_FROM_ALL` so your
+install does not ship Lorica's headers and package files). No network fetch,
+package manager, install-time script, or third-party runtime is required.
+`COMPONENTS protection` or `contracts` requires the compiled parts. Installation
+uses CMake; give the build type, or the shipped libraries are built unoptimized and
+without FORTIFY:
 
 ```sh
-cmake -S . -B build
-cmake --build build
-cmake --install build --prefix /your/prefix
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+cmake --install build --config Release --prefix /your/prefix
 ```
 
 Existing CMake projects can inject build protection without editing their source:
@@ -103,7 +107,10 @@ language rules, so a negative or wider value is not detected; use `narrow` from
 `checked_integer.hpp`, or `-Wconversion -Wsign-conversion`.
 Timeouts, concurrency limits and authentication remain service responsibilities.
 
-Hardening supports Windows MSVC-compatible toolchains and Linux GCC/Clang.
+Hardening supports Windows MSVC-compatible toolchains and Linux GCC/Clang. The
+contracts runtime is hardened, so elsewhere configure with
+`-DLORICA_BUILD_CONTRACTS=OFF` (and `LORICA_BUILD_PROTECTION=OFF`) to use the
+header-only parts.
 It does not protect prebuilt dependencies, prove every object has instrumentation,
 or make a compromised process trustworthy. Later conflicting build flags can
 weaken protection: inspect actual commands and artifacts. No universal memory
