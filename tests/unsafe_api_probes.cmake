@@ -97,6 +97,7 @@ function(lorica_add_unsafe_api_probes)
         return()
     endif()
     file(CONFIGURE OUTPUT "${directory}/legacy_copy.h" CONTENT [=[
+#pragma once
 #include <cstring>
 inline char* legacy_copy(char* out, const char* in) { return std::strcpy(out, in); }
 ]=] @ONLY)
