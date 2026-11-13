@@ -131,11 +131,13 @@ rejection); the example does not claim service deployment.
 
 ## Responsibility map
 
-Committed `spec/domains/*.domain.json` describes six responsibilities:
+Committed `spec/domains/*.domain.json` describes eight responsibilities:
 boundary-validation (including the C++20 checked APIs), build-hardening (including
 the extended profile and the unsafe API header), variable-protection
-(including sealed packs and their demo),
-artifact-inspection, contract-verification and consumer-integration. These definitions do not disable
+(including sealed packs and their demo), runtime-contracts (in-body contracts and
+the overlay), artifact-inspection, source-analysis (the lexical complexity gate,
+its tests, fixtures and adoption example), contract-verification and
+consumer-integration. These definitions do not disable
 review gates or claim test execution. Header-only C++ and Python may not be
 represented in a given analyzer snapshot; the map records their responsibility
 without claiming analysis coverage.

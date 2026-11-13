@@ -15,6 +15,7 @@ Components (C++17 unless noted, CMake 3.24+):
 | `lorica_deprecate_unsafe_apis` | Uses of `strcpy`/`strcat`/`sprintf`/`vsprintf`/`wcscpy`/`wcscat` in a target's C++ sources fail to compile; every deprecation becomes an error; [limits](spec/feature/security-contracts.md#SPEC-LR-UNSAFE-API) |
 | `LoricaInject.cmake` | External CMake injection for an explicit target allowlist |
 | `tools/verify_binary.py` | Selected PE/ELF executable metadata checks; does not execute the binary |
+| `tools/lorica_analyze.py` | Per-function complexity gate (cyclomatic, cognitive, nesting, parameters, NLOC) read from C/C++ text with no compiler; thresholds and a baseline, exit 1 on violation; reports what it could not parse ([limits](spec/feature/source-analysis.md#SPEC-LR-ANALYZE)) |
 
 ## Use
 
@@ -212,6 +213,31 @@ member points to is not protected. Values are unprotected until the pack is
 constructed. `examples/packing` reads a sealed configuration back and measures a
 pack against one `sealed_value` per value on your host; no number is promised.
 See [the pack contract](spec/feature/sealed-packs.md).
+
+## Source analysis
+
+`tools/lorica_analyze.py` reads C and C++ sources as text (Python 3 standard library,
+no compiler, nothing edited or executed) and fails like an assertion:
+
+```sh
+python3 tools/lorica_analyze.py complexity src include --max-cognitive 15 --max-cyclomatic 10
+python3 tools/lorica_analyze.py complexity src --write-baseline analysis-baseline.json   # adopt once
+python3 tools/lorica_analyze.py complexity src --strict --max-cognitive 15 --baseline analysis-baseline.json
+```
+
+Exit 0: within limits; 1: a function exceeds a threshold or got worse than the
+baseline; 2: usage error, unreadable input or, with `--strict`, an unparsed region.
+Every report states functions analysed, unparsed regions and lines not analysed.
+As a CTest gate:
+
+```cmake
+add_test(NAME myapp.complexity COMMAND ${Python3_EXECUTABLE}
+    ${LORICA_SOURCE_DIR}/tools/lorica_analyze.py complexity --strict --max-cognitive 15
+    --baseline ${CMAKE_CURRENT_SOURCE_DIR}/analysis-baseline.json ${CMAKE_CURRENT_SOURCE_DIR}/src)
+```
+
+See [examples/analysis](examples/analysis/README.md) and the limits in
+[SPEC-LR-ANALYZE](spec/feature/source-analysis.md).
 
 See [security contracts](spec/feature/security-contracts.md),
 [verification](spec/test/verification.md), and [dependency review](DEPENDENCIES.md).

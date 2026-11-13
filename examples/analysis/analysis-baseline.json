@@ -1,0 +1,27 @@
+{
+ "command": "complexity",
+ "functions": {
+  "sample.cpp::checksum(1)": {
+   "cognitive": 1,
+   "cyclomatic": 2,
+   "nesting": 1,
+   "nloc": 5,
+   "parameters": 1
+  },
+  "sample.cpp::clamp_percent(1)": {
+   "cognitive": 2,
+   "cyclomatic": 3,
+   "nesting": 1,
+   "nloc": 4,
+   "parameters": 1
+  },
+  "sample.cpp::parse_flags(1)": {
+   "cognitive": 11,
+   "cyclomatic": 8,
+   "nesting": 3,
+   "nloc": 17,
+   "parameters": 1
+  }
+ },
+ "schema_version": 1
+}

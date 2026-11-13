@@ -54,6 +54,22 @@ Praesidium: `tests/checked.cpp` is listed first in `praesidium.json`, so a chang
 header is analyzed with a C++20 unit, the newest standard Lorica's headers require.
 The C++17 headers keep C++17 coverage through the C++17 units and the CMake builds.
 
+## Source analysis (SPEC-LR-ANALYZE)
+
+`lorica.analysis.lexer`, `.preprocess`, `.extract`, `.complexity`, `.cli`, `.example`
+run `tests/analysis/test_*.py` (Python standard library, no compiler): fixtures for
+each fail-closed shape, hand-derived complexity values, the exact function list of
+`include/` and `src/` (cross-checked once against clang-tidy-18), exit codes,
+baseline and suppression semantics, and the README output of `examples/analysis`.
+`lorica.analysis.example.over_threshold` and `.baseline` run that example as a failing
+and a baselined gate; `lorica.analysis.self` requires zero unparsed regions in
+Lorica's own sources under `--strict`. The clang-tidy cross-check in
+`test_complexity.py` is skipped when clang-tidy is absent; it is never reported as
+passed then. Optional: `LORICA_ANALYSIS_SYSTEM_HEADERS=/usr/include/c++/13` adds a
+no-exception, time-bounded run over a whole header tree.
+
+## Release checks
+
 Required release checks: Windows MSVC x64 and Linux GCC/Clang builds; tests;
 sanitizers on Linux; fuzz corpus including SIZE_MAX; separate consumer using
 installed find_package; external injection with missing/empty/valid target lists;

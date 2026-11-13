@@ -7,6 +7,15 @@ Build: CMake 3.24+ and a supported compiler/linker. Optional artifact inspection
 Python 3 standard library, plus trusted binutils `readelf` for ELF. Optional fuzzing:
 Linux Clang's compiler-rt/libFuzzer; instrumentation is test-only.
 
+Optional source analysis: Python 3 standard library only (`tools/lorica_analyze.py`);
+no compiler, clang or package. clang-tidy was used once to validate it and is not a dependency.
+
+Source analysis audit (2026-11-12): reads files as UTF-8 with replacement, refuses
+files over 8 MiB, never executes, imports or edits the analysed code and starts no
+process; writes only the baseline file it is asked to write. Its results are
+heuristics (no macro expansion, no type resolution) and fail closed: what it cannot
+parse is reported, not guessed.
+
 Checked arithmetic and request budgeting have small, stable contracts and use
 standard size types/optional rather than adding a package. No crypto, authentication,
 allocator replacement, or protocol parser is reimplemented. Future adoption of
