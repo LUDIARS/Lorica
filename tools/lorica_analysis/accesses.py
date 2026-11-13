@@ -578,8 +578,10 @@ class _Walker:
                 args = (j + 2, m[j + 1])
         frame = frames[-1]
         if var is None:                                     # G<M>{m}; or G<M>(m);
-            self._emit("lock-not-held", text, k, frames, flags)
-            return end
+            if t[j].text in ("(", "{") and m[j] + 1 == end:
+                self._emit("lock-not-held", text, k, frames, flags)
+                return end
+            return k + 1                                    # G(x).swap(*this); ...
         frame.shadows.add(var)
         names, tags = [], set()
         for a, b in _split(t, m, *args) if args else []:

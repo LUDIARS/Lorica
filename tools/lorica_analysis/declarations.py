@@ -106,7 +106,7 @@ def parse_declaration(tokens, match, lo: int, hi: int, type_name: str = "") -> O
         items.append(k)
         k += 1
     texts = [tokens[k].text for k in items]
-    if not items or texts[0] in _NOT_VARIABLE or "~" in texts or (
+    if not items or (_NOT_VARIABLE | {"~", "typename"}) & set(texts) or (
             len(items) == 2 and texts[0] in ("class", "struct", "union")):
         return None
     parts, part = [], []
