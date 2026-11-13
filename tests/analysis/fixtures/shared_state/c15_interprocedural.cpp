@@ -19,6 +19,7 @@ void calls_h() { h(1.0); }
 // expect: sharing calls_out unknown
 // expect: sharing depth no-shared-state
 // expect: sharing calls_h thread-hostile
+// driver: void external() {}
 // setup: int x = 0, y = 0;
 // tsan: race | bump() | bump()
 // tsan: race | add(x, 1) | add(x, 1)

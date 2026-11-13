@@ -16,4 +16,4 @@ W* get() {
 // expect: datum W::v not-needed
 // expect: datum inst atomic:relaxed
 // expect: finding relaxed-publication get
-// tsan: race | sink(get()->v) | sink(get()->v)
+// tsan: race | sink(get()->v) | if (i == 0) pause(); sink(get()->v)

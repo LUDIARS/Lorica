@@ -10,4 +10,4 @@ int consume() { while (!ready.load(std::memory_order_relaxed)) std::this_thread:
 // expect: finding relaxed-publication publish
 // expect: finding relaxed-publication consume
 // expect: sharing publish thread-hostile
-// tsan: race | publish() | sink(consume())
+// tsan: race | if (i == 0) publish() | sink(consume())

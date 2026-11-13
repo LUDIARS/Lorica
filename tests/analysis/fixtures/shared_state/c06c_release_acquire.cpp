@@ -9,4 +9,4 @@ int consume() { while (!ready.load(std::memory_order_acquire)) std::this_thread:
 // expect: datum ready atomic:acquire,release
 // expect: sharing publish self-synchronized(unverified)
 // expect: sharing consume self-synchronized(unverified)
-// tsan: clean | publish() | sink(consume())
+// tsan: clean | if (i == 0) publish() | sink(consume())

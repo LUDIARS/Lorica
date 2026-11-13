@@ -51,6 +51,8 @@ _WRITER = frozenset("store exchange compare_exchange_weak compare_exchange_stron
                     "fetch_and fetch_or fetch_xor fetch_max fetch_min test_and_set clear".split())
 _READER = frozenset("load exchange compare_exchange_weak compare_exchange_strong fetch_add fetch_sub "
                     "fetch_and fetch_or fetch_xor fetch_max fetch_min test_and_set test wait".split())
+_PUBLISH = frozenset("store exchange compare_exchange_weak compare_exchange_strong".split())
+_OBSERVE = frozenset("load exchange compare_exchange_weak compare_exchange_strong test wait".split())
 _ORDER_AT = {"load": 0, "test": 0, "test_and_set": 0, "clear": 0, "wait": 1, "store": 1,
              "compare_exchange_weak": 2, "compare_exchange_strong": 2}
 _INVALID = {"load": ("release", "acq_rel"), "test": ("release", "acq_rel"), "wait": ("release", "acq_rel"),
@@ -254,19 +256,25 @@ class _Analysis:
             and self.owner(f) is not None and datum.v.name.startswith(self.owner(f) + "::")
             and not facts.this_escapes)
 
+    @staticmethod
+    def _publishes(event: Event) -> bool:
+        return event.access == "write" or event.op in _PUBLISH
+
+    @staticmethod
+    def _acquires(event: Event) -> bool:
+        return event.access == "read" or event.op in _OBSERVE
+
     def _roles(self) -> None:
-        """An atomic publishes or guards data when a function writes shared data before
-        storing it, or reads it and then accesses shared data (or it holds a pointer)."""
+        """An atomic publishes or guards data when it holds a pointer, when a function
+        writes shared data and then stores it, or tests it in a condition and then
+        accesses shared data. A counter (fetch_add, ++, ...) never does."""
         for facts in self.facts:
             uses = [(e, d) for e, d in self.uses[id(facts)] if d is not None and e.kind == "use"]
             for k, (event, datum) in enumerate(uses):
-                if not datum.atomic:
-                    continue
-                writes = event.access in ("write", "rmw") or event.op in _WRITER
-                reads = event.access in ("read", "rmw") or event.op in _READER
-                if (writes and any(self._shared(d) and e.access in ("write", "rmw", "call")
-                                   for e, d in uses[:k])) or (
-                        reads and any(self._shared(d) for e, d in uses[k + 1:])):
+                if datum.atomic and ((self._publishes(event) and any(
+                        self._shared(d) and e.access != "read" for e, d in uses[:k])) or (
+                        self._acquires(event) and "condition" in event.flags
+                        and any(self._shared(d) for e, d in uses[k + 1:]))):
                     datum.publication = True
 
     def _record(self, facts: Facts) -> None:
@@ -274,10 +282,9 @@ class _Analysis:
         published = [(k, e, d) for k, (e, d) in enumerate(uses) if d.atomic and d.publication]
         for k, (event, datum) in enumerate(uses):
             locks = _combine(event.locks, self.entry[id(facts)])
-            if locks is not None and not datum.atomic:
+            if locks is not None and self._shared(datum):
                 locks = locks | {"atomic:" + d.v.name.rsplit("::", 1)[-1] for j, e, d in published
-                                 if (j > k and (e.access in ("write", "rmw") or e.op in _WRITER))
-                                 or (j < k and (e.access in ("read", "rmw") or e.op in _READER))}
+                                 if (j > k and self._publishes(e)) or (j < k and self._acquires(e))}
             access = event.access
             if "decays" in event.flags and "array" in datum.v.specifiers:
                 access = "escape"           # `return buffer_;` from a function returning a pointer

@@ -17,4 +17,4 @@ W* get() {
 // expect: datum W::v not-needed
 // expect: datum inst atomic:acquire,relaxed,release
 // expect: sharing get self-synchronized(unverified)
-// tsan: clean | sink(get()->v) | sink(get()->v)
+// tsan: clean | sink(get()->v) | if (i == 0) pause(); sink(get()->v)

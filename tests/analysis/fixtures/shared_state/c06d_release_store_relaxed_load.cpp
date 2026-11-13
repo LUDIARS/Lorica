@@ -9,4 +9,4 @@ int consume() { while (!ready.load(std::memory_order_relaxed)) std::this_thread:
 // expect: datum ready atomic:relaxed,release
 // expect: finding relaxed-publication consume
 // expect: sharing publish self-synchronized(unverified)
-// tsan: race | publish() | sink(consume())
+// tsan: race | if (i == 0) publish() | sink(consume())

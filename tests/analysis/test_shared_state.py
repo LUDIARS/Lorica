@@ -123,6 +123,9 @@ class RuleTests(unittest.TestCase):
         # The same atomic stored relaxed after a write to shared data publishes it.
         res = result(counter + "void f() { other = 1; n.store(1, std::memory_order_relaxed); }\n")
         self.assertEqual(findings(res), {("relaxed-publication", "f")})
+        # A counter followed by an unrelated write neither publishes nor protects it.
+        res = result(counter + "void f() { n.fetch_add(1, std::memory_order_relaxed); ++other; }\n")
+        self.assertEqual(findings(res), {("unsynchronized", "other")})
         # A pointer atomic is a publication; the default order is never a finding.
         res = result("#include <atomic>\nstd::atomic<int*> p{nullptr};\n"
                      "int f() { return *p.load(); }\nvoid g(int* q) { p.store(q); }\n")

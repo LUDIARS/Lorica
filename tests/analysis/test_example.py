@@ -29,7 +29,8 @@ class ReadmeTests(unittest.TestCase):
         steps = sessions((EXAMPLE / "README.md").read_text(encoding="utf-8"))
         self.assertGreaterEqual(len(steps), 5)
         with tempfile.TemporaryDirectory() as work:
-            shutil.copy(EXAMPLE / "sample.cpp", work)
+            for source in EXAMPLE.glob("*.cpp"):
+                shutil.copy(source, work)
             status = None
             for command, expected in steps:
                 with self.subTest(command=command):
@@ -42,9 +43,9 @@ class ReadmeTests(unittest.TestCase):
                                          cwd=work, capture_output=True, text=True)
                     status = run.returncode
                     self.assertEqual(run.stdout, expected)
-            # The committed baseline is what the README's command writes.
-            self.assertEqual(Path(work, "analysis-baseline.json").read_text(),
-                             (EXAMPLE / "analysis-baseline.json").read_text())
+            # The committed baselines are what the README's commands write.
+            for baseline in ("analysis-baseline.json", "shared-state-baseline.json"):
+                self.assertEqual(Path(work, baseline).read_text(), (EXAMPLE / baseline).read_text())
 
 
 if __name__ == "__main__":

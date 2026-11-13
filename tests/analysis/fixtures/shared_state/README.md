@@ -11,4 +11,5 @@ fixtures f01 to f29 in brackets). `tests/analysis/test_shared_state.py` checks e
 `tests/analysis/tsan_oracle.py` builds each `// tsan: <race|clean> | <thread 1> | <thread 2>`
 line into a two-thread driver (`// setup:` lines run first; `i` is the loop index,
 `sink()` consumes a value through a volatile) and requires ThreadSanitizer to agree.
+`// driver:` lines are appended after the fixture (definitions it only declares).
 `// tsan: not-observable(<reason>)` lines are listed and not run.
