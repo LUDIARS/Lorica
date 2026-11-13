@@ -29,6 +29,9 @@ if(LORICA_BUILD_PROTECTION)
     lorica_harden_target(lorica_protection)
     install(TARGETS lorica_protection EXPORT LoricaTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+else()
+    # Its headers would compile and then fail to link without the library.
+    set(lorica_header_excludes PATTERN sealed_value.hpp EXCLUDE PATTERN sealed_region.hpp EXCLUDE)
 endif()
 
 # All modules in a process must import the same contracts runtime.
@@ -195,13 +198,58 @@ int main(int, char** argv) {
         "-DGENERATOR=${CMAKE_GENERATOR}" "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}" "-DCONFIG=$<CONFIG>"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/contract_semantic_switch.cmake")
     if(LORICA_BUILD_PROTECTION)
+        find_package(Threads REQUIRED)
         add_executable(lorica_protection_tests tests/protection.cpp)
-        target_link_libraries(lorica_protection_tests PRIVATE Lorica::protection)
+        target_link_libraries(lorica_protection_tests PRIVATE Lorica::protection Threads::Threads)
         lorica_harden_target(lorica_protection_tests)
         add_test(NAME lorica.protection COMMAND lorica_protection_tests)
         add_test(NAME lorica.protection_write_denied
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/protection_fault.py
-                $<TARGET_FILE:lorica_protection_tests>)
+                $<TARGET_FILE:lorica_protection_tests> --write)
+        if(NOT WIN32)
+            # Control: the harness must reject a fault the child does not attribute to the sealed byte.
+            add_test(NAME lorica.protection_write_misdirected
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/protection_fault.py
+                    $<TARGET_FILE:lorica_protection_tests> --misdirected)
+            set_tests_properties(lorica.protection_write_misdirected PROPERTIES
+                PASS_REGULAR_EXPRESSION "Expected write protection fault -11, got 5")
+        endif()
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            # The linker routes the library's mmap/mprotect/munmap calls through the test.
+            add_executable(lorica_protection_linux_tests tests/protection_linux.cpp)
+            target_link_libraries(lorica_protection_linux_tests PRIVATE Lorica::protection)
+            target_link_options(lorica_protection_linux_tests PRIVATE
+                -Wl,--wrap=mmap,--wrap=mprotect,--wrap=munmap)
+            lorica_harden_target(lorica_protection_linux_tests)
+            add_test(NAME lorica.protection_linux COMMAND lorica_protection_linux_tests)
+        endif()
+        # Types sealed_value must refuse, constructed without calling load().
+        set(lorica_sealed_pointer "int*")
+        set(lorica_sealed_structure "pod")
+        set(lorica_sealed_qualified "const int")
+        foreach(probe IN ITEMS pointer structure qualified)
+            set(type "${lorica_sealed_${probe}}")
+            file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/sealed_probes/${probe}.cpp" CONTENT [=[
+#include <lorica/sealed_value.hpp>
+struct pod { int value; };
+int main() { const lorica::sealed_value<@type@> value{{}}; return 0; }
+]=] @ONLY)
+            add_executable(lorica_probe_sealed_${probe} EXCLUDE_FROM_ALL
+                "${CMAKE_CURRENT_BINARY_DIR}/sealed_probes/${probe}.cpp")
+            target_link_libraries(lorica_probe_sealed_${probe} PRIVATE Lorica::protection)
+            add_test(NAME lorica.protection.rejects_${probe} COMMAND "${CMAKE_COMMAND}"
+                "-DBUILD_DIR=${CMAKE_BINARY_DIR}" "-DTARGET=lorica_probe_sealed_${probe}" "-DCONFIG=$<CONFIG>"
+                "-DEXPECT=reject" "-DDIAGNOSTIC=sealed_value requires an unqualified arithmetic or enum type"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_build_probe.cmake")
+            set_tests_properties(lorica.protection.rejects_${probe} PROPERTIES RESOURCE_LOCK lorica_build_tree)
+        endforeach()
+        # The installed package, found and injected by an independent project.
+        add_test(NAME lorica.protection_consumer COMMAND "${CMAKE_COMMAND}"
+            "-DBUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}" "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/examples/consumer"
+            "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/protection_consumer/$<CONFIG>"
+            "-DLIBDIR=${CMAKE_INSTALL_LIBDIR}" "-DGENERATOR=${CMAKE_GENERATOR}"
+            "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}" "-DCXX_FLAGS=${CMAKE_CXX_FLAGS}" "-DCONFIG=$<CONFIG>"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/protection_consumer.cmake")
     endif()
 endif()
 # Examples double as demos that cannot rot: with tests enabled they run as
@@ -222,7 +270,7 @@ if(LORICA_BUILD_FUZZER)
 endif()
 
 install(TARGETS lorica_boundary EXPORT LoricaTargets)
-install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} ${lorica_header_excludes})
 install(EXPORT LoricaTargets NAMESPACE Lorica:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Lorica)
 configure_package_config_file(cmake/LoricaConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/LoricaConfig.cmake

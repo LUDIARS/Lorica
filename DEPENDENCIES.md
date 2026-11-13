@@ -32,8 +32,9 @@ Write-protection audit: scalar size comes from sizeof, with no user-controlled
 rounding arithmetic. OS calls allocate complete pages independently of the heap.
 Source bytes are copied synchronously before sealing; no writable pointer escapes
 the scalar API. Failed sealing releases its mapping before throwing. Successful
-owners release once; copy and move are disabled. Cleanup failure terminates instead
-of silently leaking. Concurrent loads only read immutable bytes; concurrent owner
+owners release once; copy and move are disabled. A release refused by the kernel
+for lack of mapping slots (ENOMEM) leaves the page mapped read-only; any other
+cleanup failure terminates. Concurrent loads only read immutable bytes; concurrent owner
 destruction remains forbidden. Returned copies and owner metadata are unprotected.
 No encryption, authentication, secure erase or general allocator is invented.
 Tests use Python standard-library subprocess without a shell; no installer or

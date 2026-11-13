@@ -174,13 +174,17 @@ The original bytes live in a dedicated OS mapping requested without execute acce
 before construction returns. There is no setter or mutable pointer. Only arithmetic
 and enum values are supported. OS allocation/protection errors throw; there is no
 writable fallback. Windows and Linux are supported by the implementation;
-platform test execution must be verified separately. Disable the compiled component
-explicitly with `LORICA_BUILD_PROTECTION=OFF` for boundary-only use.
+platform test execution must be verified separately. `LORICA_BUILD_PROTECTION=OFF`
+omits `Lorica::protection` and does not install its headers.
 
-This is appropriate for sparse immutable configuration, not every variable: each
-value consumes at least one page. A forbidden write faults the process. It does not
-protect copies, owner metadata or a process that can change its own permissions.
-It does not hide secrets, securely erase memory or protect unrelated allocations.
+This is appropriate for a few process-lifetime settings, not every variable: each
+value is its own OS mapping with one resident page, and Linux limits a process to
+`vm.max_map_count` mappings. Construct values inside `main` under try/catch; at
+namespace scope a failing constructor terminates before `main`. A forbidden write
+faults the process. It does not stop the process itself from zeroing the page with
+`madvise`, writing it through `/proc/self/mem` or changing its permissions, and it
+does not protect copies or the owner object. It does not hide secrets, securely
+erase memory or protect unrelated allocations.
 The owner must outlive reads and be safely published to concurrent readers.
 See [the protection contract](spec/feature/sealed-values.md) for limits and suggested
 development tools (ASan, UBSan, TSan and fuzzing).

@@ -76,10 +76,22 @@ The naming difference between this ABI and `main`/`require` is intentional.
 ## Read-only values
 
 `lorica.protection` checks immutable scalar reads, edge values, copy independence,
-ownership restrictions and invalid region inputs. Windows additionally inspects
-actual OS page permissions. `lorica.protection_write_denied` runs a child process
-that deliberately writes sealed bytes, accepting only Windows access violation
-0xC0000005 or Linux SIGSEGV. Other errors, normal exits and timeouts fail the check.
-Crash UI/core dumps are disabled in this child. These tests must run in the review
-environment; merely compiling them does not verify OS enforcement. Linux and
-concurrent-reader sanitizer coverage must be recorded independently.
+ownership restrictions, invalid region inputs and concurrent readers. Windows
+additionally inspects actual OS page permissions. `lorica.protection_linux` links
+with `-Wl,--wrap` for mmap/mprotect/munmap: it checks the requested permissions
+and flags, the resulting `/proc/self/maps` entry and the single release, and
+injects mmap, mprotect and munmap failures (ENOMEM keeps the page; any other release
+failure terminates). `lorica.protection.rejects_*` build pointer, structure and
+const-qualified values and require the type diagnostic.
+`lorica.protection_write_denied` runs a child process that deliberately writes
+sealed bytes, accepting only Windows access violation 0xC0000005 or Linux SIGSEGV.
+On Linux the child installs its own handler and exits with another status unless
+the byte was readable and the fault is a denied access at that byte, so sanitizer
+handlers and unrelated faults cannot pass; the driver also sets `handle_segv=0`
+for ASan and TSan. `lorica.protection_write_misdirected` is the control: the same
+child judged against another address must be rejected by the driver. Other errors,
+normal exits and timeouts fail the check. Crash UI/core dumps are disabled in this
+child. `lorica.protection_consumer` installs the build to a scratch prefix and
+builds and runs `examples/consumer` against it with `LoricaInject.cmake`. These
+tests must run in the review environment; merely compiling them does not verify OS
+enforcement. Sanitizer runs are recorded in the evidence files under `spec/plan`.
