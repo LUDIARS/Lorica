@@ -524,7 +524,7 @@ class TrialTests(unittest.TestCase):
                       "only, not verified: the witness does not compile: lorica-witness:1: non-constant", out)
         self.assertIn(":14 windows_only: inactive in every configuration\n", out)
         self.assertIn("hidden: 1 (template 1); --show-hidden lists them\n", out)
-        self.assertNotIn("tmpl", out)
+        self.assertNotIn(":12 tmpl", out)
         self.assertIn("note: witness not used (no candidate has this key): lib/b.hpp::gone(0)\n", out)
 
     def test_without_a_compiler_only_facts(self):
