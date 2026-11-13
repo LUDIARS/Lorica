@@ -151,12 +151,10 @@ class _Analysis:
                     self.data[key] = _Datum(variable, file.source)
             for facts in file.facts:
                 for event in facts.events:
-                    if event.kind == "static":
+                    if event.kind == "static":     # flags: the declaration's specifiers
                         f = facts.function
-                        storage = "thread_local" if "thread_local" in event.flags else "static local"
                         variable = Variable(event.name[7:], "static local", f.file, event.line, event.line,
-                                            event.op, event.flags | ({storage} if storage == "thread_local"
-                                                                     else set()), False, f.in_unnamed_namespace)
+                                            event.op, event.flags, False, f.in_unnamed_namespace)
                         self.data[_norm(variable.name)] = _Datum(variable, file.source)
         self.facts = [facts for file in files for facts in file.facts]
         self.sources = {f.source.path: f.source for f in files}
