@@ -94,4 +94,17 @@ normal exits and timeouts fail the check. Crash UI/core dumps are disabled in th
 child. `lorica.protection_consumer` installs the build to a scratch prefix and
 builds and runs `examples/consumer` against it with `LoricaInject.cmake`. These
 tests must run in the review environment; merely compiling them does not verify OS
-enforcement. Sanitizer runs are recorded in the evidence files under `spec/plan`.
+enforcement. Sanitizer runs are recorded in
+`spec/plan/2026-11-13-protection-review-evidence.md`.
+
+`lorica.pack.unit` checks the sealed pack API (SPEC-LR-PACK): exact readback of
+several types, alignment, exact fit and refused adds leaving state unchanged,
+array edges and overflow, out-of-range indices as empty, capacity 0, an absurd
+capacity (not under the sanitizers, whose allocators exit instead of throwing),
+sealing nothing, the consumed builder, and the offset arithmetic and
+type/ownership refusals as static_asserts. `lorica.pack.stops.*` run children
+through `tests/pack_fault.py`: writes to the first and last used byte must end
+with SIGSEGV/0xC0000005, reads through a slot outside a smaller pack with abort,
+and the control with exit 0; the driver sets `handle_segv=0` for ASan/TSan.
+`lorica.pack.readers_tsan` is registered only in a `-fsanitize=thread` build.
+`lorica.demo.packing` judges checksums only.

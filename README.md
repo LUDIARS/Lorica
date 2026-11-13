@@ -9,7 +9,7 @@ Components (C++17 unless noted, CMake 3.24+):
 | --- | --- |
 | `Lorica::boundary` | Checked size arithmetic, bounded byte views, cumulative request budgets |
 | `Lorica::boundary` (C++20 headers) | Checked integers of any type, bounded string copy/append/format, endian-safe byte reading ([checked APIs](spec/feature/checked-apis.md)) |
-| `Lorica::protection` | Dedicated OS read-only storage for immutable arithmetic/enum values |
+| `Lorica::protection` | Dedicated OS read-only storage: one immutable arithmetic/enum value per mapping (`sealed_value`), or many values, structures and tables in one sealed mapping (`sealed_pack`) |
 | `Lorica::contracts` | C++26 contract emulation (`LORICA_PRE` / `LORICA_POST` / `LORICA_CONTRACT_ASSERT`), four evaluation semantics, replaceable violation handler |
 | `lorica_harden_target` | Target-local baseline hardening, with an optional strict `EXTENDED` profile and a configure-time capability query |
 | `lorica_deprecate_unsafe_apis` | Uses of `strcpy`/`strcat`/`sprintf`/`vsprintf`/`wcscpy`/`wcscat` in a target's C++ sources fail to compile; every deprecation becomes an error; [limits](spec/feature/security-contracts.md#SPEC-LR-UNSAFE-API) |
@@ -177,17 +177,41 @@ writable fallback. Windows and Linux are supported by the implementation;
 platform test execution must be verified separately. `LORICA_BUILD_PROTECTION=OFF`
 omits `Lorica::protection` and does not install its headers.
 
-This is appropriate for a few process-lifetime settings, not every variable: each
-value is its own OS mapping with one resident page, and Linux limits a process to
-`vm.max_map_count` mappings. Construct values inside `main` under try/catch; at
-namespace scope a failing constructor terminates before `main`. A forbidden write
-faults the process. It does not stop the process itself from zeroing the page with
-`madvise`, writing it through `/proc/self/mem` or changing its permissions, and it
-does not protect copies or the owner object. It does not hide secrets, securely
-erase memory or protect unrelated allocations.
+This is appropriate for a handful of process-lifetime settings, not every
+variable: each value has its own mapping and at least one resident page, and Linux
+limits a process to `vm.max_map_count` mappings; use a sealed pack for more.
+Construct values inside `main` under try/catch; at namespace scope a failing
+constructor terminates before `main`. An ordinary forbidden write faults the
+process. It does not stop the process itself from zeroing the value with `madvise`,
+writing it through `/proc/self/mem` or `ptrace`, or using its own
+`mprotect`/`munmap`/`mmap(MAP_FIXED)`, and it does not protect copies or the owner
+object. It does not hide secrets, securely erase memory or protect unrelated allocations.
 The owner must outlive reads and be safely published to concurrent readers.
 See [the protection contract](spec/feature/sealed-values.md) for limits and suggested
 development tools (ASan, UBSan, TSan and fuzzing).
+
+## Sealed packs
+
+For structures, tables and more than a handful of values, stage them in a
+`pack_builder` and seal them into one read-only mapping (same link target,
+`<lorica/sealed_pack.hpp>`):
+
+```cpp
+lorica::pack_builder builder(1024);              // capacity from trusted configuration
+const auto limits = builder.add(service_limits{512, 1u << 20, 30, true});
+const auto table = builder.add_array(hex.data(), hex.size());
+if (!limits || !table) return false;             // did not fit: a value, not an exception
+const lorica::sealed_pack pack(std::move(builder)); // read-only when this returns
+const service_limits copy = pack.load(*limits);
+const std::optional<std::int8_t> digit = pack.at(*table, index); // empty when out of range
+```
+
+Reads return copies. A read whose slot lies outside the pack terminates; this
+bounds the read and does not tell whose slot it is. Sealing is shallow: memory a
+member points to is not protected. Values are unprotected until the pack is
+constructed. `examples/packing` reads a sealed configuration back and measures a
+pack against one `sealed_value` per value on your host; no number is promised.
+See [the pack contract](spec/feature/sealed-packs.md).
 
 See [security contracts](spec/feature/security-contracts.md),
 [verification](spec/test/verification.md), and [dependency review](DEPENDENCIES.md).

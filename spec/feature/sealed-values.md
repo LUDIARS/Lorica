@@ -17,34 +17,45 @@ object representation and returns a value copy using memcpy; no typed object is
 constructed inside the mapping. Pointers, structures, mutable references and
 copy/move assignment are excluded. Ownership is noncopyable and nonmovable.
 The owner must outlive all reads; publish it to other threads using normal C++
-synchronization. No atomic/fence guarantee is added.
+synchronization. No atomic/fence guarantee is added. Structures, tables and many
+values belong in one [sealed pack](sealed-packs.md) instead.
 
-Threat model: blocks ordinary stores into the mapped data while its OS permissions
-remain read-only; such a store faults the process, which is not recoverable input
-validation. Read-only permission does not stop the process itself from changing
-the value without a fault: `madvise(MADV_DONTNEED)` on the page replaces it with
-zero (`MADV_FREE` lets the kernel do so later), a write through `/proc/self/mem`
-replaces it, the process's own `mprotect`, `munmap` or `mmap(MAP_FIXED)` can unseal
-or replace the page, and a permitted ptrace tracer can write it. A wrong range given
-to such a call anywhere in the process is enough. The owner object is unprotected
-metadata: a write that reaches it changes what `load()` reads, without a fault, and
-what the destructor releases; `const` on the owner does not make it read-only.
-Source/readback copies, secrets and freed mappings are not protected. Construct
-values inside `main` (or a function it calls) under try/catch: a constructor that
-throws at namespace scope terminates the process before `main`.
+Threat model: an ordinary write through memory access to the sealed bytes faults
+the process; this is not recoverable input validation. A kernel-mediated write
+into them, such as `read(2)`, fails with an error (EFAULT) instead. The protection
+does not stop the process itself, and a wrong range given to such a call anywhere
+in the process is enough: `madvise(MADV_DONTNEED)` replaces the value with zero
+without a fault while the page stays read-only (`MADV_FREE` is accepted too and
+lets the kernel do the same later), a write through `/proc/self/mem` replaces it
+likewise, its own `mprotect`, `munmap` or `mmap(MAP_FIXED)` over the mapping
+unseals or replaces it, and another process can write it with `ptrace` (observed
+on Linux, except the deferred `MADV_FREE` discard). This is page protection, not
+Linux `mseal(2)`. The owner object is unprotected metadata: a write that reaches
+it changes what `load()` reads, without a fault, and what the destructor releases;
+`const` on the owner does not make it read-only. Source/readback copies, secrets
+and freed mappings are not protected. Sealing is shallow: only the value's own
+bytes are protected, never memory they refer to, which is why pointers are
+excluded here. Construct values inside `main` (or a function it calls) under
+try/catch: a constructor that throws at namespace scope terminates the process
+before `main`.
 
-Cost and limits: each value is its own mapping, created with two OS calls and
-released with one, and keeps one resident page (on Windows one committed page in
-its own reservation, which takes 64 KiB of address space). Use it for a few
+Limits: each value creates and protects a mapping of its own with two OS calls and
+removes it with one, which can interrupt the process's other running threads, and
+keeps at least one page resident (on Windows one committed page in a reservation
+of its own, which takes 64 KiB of address space); once there are hundreds of
+values, reads slow down because each sits on its own page. Use for a handful of
 process-lifetime settings, not every local variable and not per request. On Linux
-a process has at most `vm.max_map_count` mappings; adjacent sealed pages may merge
-into one. When no mapping is left, construction throws `system_error`
-(`ENOMEM`). Releasing a value with live sealed neighbours on both sides in one
-merged run needs one more mapping; releasing in reverse order of construction or
-in order of construction does not. If the kernel refuses a release for that reason
-(`ENOMEM`), the destructor leaves the page mapped read-only until the process exits;
-any other release failure terminates. No guard-page, encryption, secure erasure or
-performance claim is made. No production service is automatically migrated.
+a process has at most `vm.max_map_count` mappings, and construction throws
+`system_error` (`ENOMEM`) when none is left. The kernel merges adjacent read-only
+mappings; releasing a value with live sealed neighbours on both sides of a merged
+run splits it and needs one more mapping, while releasing in reverse order of
+construction or in order of construction does not. If the kernel refuses a
+release for that reason (`ENOMEM`), the destructor leaves the page mapped
+read-only until the process exits (observed on Linux with 140,000 values, every
+other one destroyed, at the default limit 65,530); any other release failure
+terminates. A pack is removed as one mapping and never needs the split. No
+guard-page, encryption, secure erasure or performance claim is made. No production
+service is automatically migrated.
 
 Acceptance: copy reads preserve supported scalar values; compile-time exclusion
 of pointer, structure, qualified and assignment APIs; OS query confirms read-only

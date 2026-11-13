@@ -252,6 +252,29 @@ int main() { const lorica::sealed_value<@type@> value{{}}; return 0; }
             "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}" "-DCXX_FLAGS=${CMAKE_CXX_FLAGS}" "-DCONFIG=$<CONFIG>"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/protection_consumer.cmake")
         set_tests_properties(lorica.protection_consumer PROPERTIES RESOURCE_LOCK lorica_build_tree)
+        # Sealed packs: the API, then each violation in a child judged from outside.
+        foreach(name pack pack_fault)
+            add_executable(lorica_${name}_tests tests/${name}.cpp)
+            target_link_libraries(lorica_${name}_tests PRIVATE Lorica::protection)
+            lorica_harden_target(lorica_${name}_tests)
+        endforeach()
+        add_test(NAME lorica.pack.unit COMMAND lorica_pack_tests)
+        foreach(case IN ITEMS control:exit-0 write_first:access-violation write_last:access-violation
+                              load_outside:abort at_outside:abort)
+            string(REPLACE ":" ";" case "${case}")
+            list(GET case 0 mode)
+            list(GET case 1 ending)
+            add_test(NAME lorica.pack.stops.${mode}
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/pack_fault.py
+                    $<TARGET_FILE:lorica_pack_fault_tests> ${mode} ${ending})
+        endforeach()
+        # Readers without synchronisation can only fail where a race is reported.
+        if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=thread")
+            find_package(Threads REQUIRED)
+            add_executable(lorica_pack_readers_tests tests/pack_readers.cpp)
+            target_link_libraries(lorica_pack_readers_tests PRIVATE Lorica::protection Threads::Threads)
+            add_test(NAME lorica.pack.readers_tsan COMMAND lorica_pack_readers_tests)
+        endif()
     endif()
 endif()
 # Examples double as demos that cannot rot: with tests enabled they run as
@@ -259,6 +282,9 @@ endif()
 option(LORICA_BUILD_EXAMPLES "Build the examples (run as lorica.demo.* tests with LORICA_BUILD_TESTS)" OFF)
 if(LORICA_BUILD_EXAMPLES)
     add_subdirectory(examples/contracts)
+    if(LORICA_BUILD_PROTECTION)
+        add_subdirectory(examples/packing)
+    endif()
 endif()
 if(LORICA_BUILD_FUZZER)
     if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
