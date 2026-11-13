@@ -41,14 +41,16 @@ cmake --install build --config Release --prefix /your/prefix
 Existing CMake projects can inject build protection without editing their source:
 
 ```sh
-cmake -S /service/source -B /service/build \
+cmake -S /service/source -B /service/build -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=/path/to/Lorica/cmake/LoricaInject.cmake \
   '-DLORICA_TARGETS=my_service;my_parser' \
   -DLORICA_PROFILE=extended -DLORICA_DEPRECATE_UNSAFE_APIS=ON   # optional
 ```
 
-Every listed target must exist and be locally compiled. Boundary checks still
-require call-site adoption; loading a DLL cannot retrofit them into arbitrary C++.
+Every listed target must exist and be locally compiled. Single-config generators need
+the build type: an empty one gets no FORTIFY, which EXTENDED does not refuse.
+Boundary checks still require call-site adoption; loading a DLL cannot retrofit
+them into arbitrary C++.
 The injection hook requires being the top-level configure and is not a dependency
 graph traversal. Explicitly list each source-built library requiring mitigation.
 
