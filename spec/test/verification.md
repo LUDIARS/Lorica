@@ -105,10 +105,37 @@ and clang++ 18 at C++17/20/23 against the recorded states and must never report
 without those compilers or off Linux. The run over Lorica itself is recorded in
 `spec/plan/2026-11-13-constexpr-report.md` (0 witnessed). MSVC is not executed.
 
+## Sanitizers on Linux {#SPEC-LR-SANITIZERS}
+
+The supported entry point is the whole registered suite in a GCC build with the
+sanitizer flags (Clang works the same where its sanitizer runtimes are installed);
+every test must pass, none is excluded:
+
+```sh
+cmake -S . -B build-asan -G Ninja -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release \
+  -DLORICA_BUILD_TESTS=ON -DLORICA_BUILD_EXAMPLES=ON \
+  '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'
+cmake -S . -B build-tsan -G Ninja -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release \
+  -DLORICA_BUILD_TESTS=ON -DLORICA_BUILD_EXAMPLES=ON -DLORICA_ANALYSIS_TSAN_ORACLE=ON \
+  '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Werror -fsanitize=thread'
+cmake --build build-asan && ctest --test-dir build-asan --output-on-failure --no-tests=error
+cmake --build build-tsan && ctest --test-dir build-tsan --output-on-failure --no-tests=error
+```
+
+Under AddressSanitizer `lorica.hardening_stops.fortify` is reported skipped (ASan
+stops the overflowing copy first) and the absurd-capacity check of
+`lorica.pack.unit` is compiled out (see "Read-only values"); the fault children set
+`handle_segv=0` themselves. The ThreadSanitizer build adds
+`lorica.pack.readers_tsan` and `lorica.analysis.shared_state.tsan`. Where the kernel
+randomizes mmap with more than 28 bits (GitHub's runners), ThreadSanitizer needs
+`sysctl vm.mmap_rnd_bits=28` first. `.github/workflows/ci.yml` runs both builds, the
+Linux GCC/Clang Release/Debug matrix and the Windows MSVC x64 Release build on every
+pull request and push to main.
+
 ## Release checks
 
 Required release checks: Windows MSVC x64 and Linux GCC/Clang builds; tests;
-sanitizers on Linux; fuzz corpus including SIZE_MAX; separate consumer using
+sanitizers on Linux (above); fuzz corpus including SIZE_MAX; separate consumer using
 installed find_package; external injection with missing/empty/valid target lists;
 binary verifier positive and intentionally unhardened/malformed negative fixtures
 (registered as `lorica.verify_binary.*`).
