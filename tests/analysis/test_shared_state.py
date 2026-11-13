@@ -100,6 +100,12 @@ class RuleTests(unittest.TestCase):
                           "void g() { if (a) { std::lock_guard<std::mutex> h(m); ++a; } }\n")
         self.assertEqual(data["a"][:2], ("inconsistent", "inconsistent-locking"))
 
+    def test_manual_lock_ends_at_unlock(self):
+        data = self.judge("#include <mutex>\nstd::mutex m; int a = 0, b = 0;\n"
+                          "void f() { m.lock(); ++a; m.unlock(); ++b; }\n"
+                          "void g() { std::lock_guard<std::mutex> l(m); ++a; ++b; }\n")
+        self.assertEqual((data["a"][0], data["b"][0]), ("lock:m", "inconsistent"))
+
     def test_for_and_if_conditions_scope_their_declarations(self):
         data = self.judge("int i = 0;\nvoid f() { for (int i = 0; i < 3; ++i) {} ++i; }\n")
         self.assertEqual(data["i"][:2], ("missing", "unsynchronized"))
@@ -125,6 +131,9 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(findings(res), {("relaxed-publication", "f")})
         # A counter followed by an unrelated write neither publishes nor protects it.
         res = result(counter + "void f() { n.fetch_add(1, std::memory_order_relaxed); ++other; }\n")
+        self.assertEqual(findings(res), {("unsynchronized", "other")})
+        # A counter never publishes, even after a write to shared data.
+        res = result(counter + "void f() { ++other; n.fetch_add(1, std::memory_order_relaxed); }\n")
         self.assertEqual(findings(res), {("unsynchronized", "other")})
         # A pointer atomic is a publication; the default order is never a finding.
         res = result("#include <atomic>\nstd::atomic<int*> p{nullptr};\n"
