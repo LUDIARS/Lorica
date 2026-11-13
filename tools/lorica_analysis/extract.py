@@ -63,6 +63,7 @@ class Function(NamedTuple):
     line: int           # line of the name
     start_line: int     # first line of the declaration (template head included)
     end_line: int       # line of the closing brace
+    body_line: int      # line of the body's opening brace
     parameters: int     # 0 for macro-functions
     specifiers: FrozenSet[str]  # read from the head: constexpr consteval static inline
                         # virtual explicit friend template const noexcept override final
@@ -163,17 +164,16 @@ class _Extractor:
         while i < len(tokens):
             token = tokens[i]
             text = token.text
+            if token.kind == PUNCT and text in "([{" and match[i] < 0:
+                i = head = i + 1        # already a region: unclosed or closed by another kind
+                continue
             if token.kind == PUNCT and text in "([" and text:
-                if match[i] < 0:
-                    break  # the rest lies in an "unclosed" region
                 close = match[i]
                 if i == head + 1 and self._macro_statement(i, close, scopes[-1]):
                     head = close + 1
                 i = close + 1
                 continue
             if token.kind == PUNCT and text == "{":
-                if match[i] < 0:
-                    break
                 if poison is not None:
                     self._region(tokens[poison].line, tokens[match[i]].line,
                                  "control keyword '%s' at %s scope" % (tokens[poison].text, scopes[-1].kind))
@@ -233,8 +233,8 @@ class _Extractor:
         statement = self._statement_inside(i, close)
         if statement is not None:
             self._region(tokens[i].line, tokens[close].line,
-                         "skipped %s block holds a statement at line %d" % (kind, statement))
-        return close + 1, (head if kind in ("initializer", "enum") else close + 1)
+                         "brace block read as %s holds a statement at line %d" % (kind, statement))
+        return close + 1, (head if kind in ("initializer", "enum") and statement is None else close + 1)
 
     def _statement_inside(self, open_: int, close: int) -> Optional[int]:
         k = open_ + 1
@@ -514,7 +514,7 @@ class _Extractor:
                                    | ({"template"} if template else set()))
         self.functions.append(Function(
             "::".join(scope_names + [name]), kind, self.path, tokens[name_item.lo].line,
-            tokens[head].line, tokens[close].line, parameters, specifiers, in_class, self.header,
+            tokens[head].line, tokens[close].line, tokens[brace].line, parameters, specifiers, in_class, self.header,
             any(s.kind == "namespace" and s.name is None for s in scopes),
             (brace, close), tuple(self._lambdas(brace, close))))
 

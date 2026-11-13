@@ -60,8 +60,8 @@ def _notes(entry: Optional[Entry], metric: str) -> List[str]:
 
 def text(run: Run, show_all: bool = False) -> str:
     s = summary(run)
-    out = ["lorica-analyze %s: %d files, %d functions analysed, %d unparsed regions, "
-           "%d lines not analysed" % (run.command, s["files"], s["functions"],
+    out = ["lorica-analyze %s: files %d, functions analysed %d, unparsed regions %d, "
+           "lines not analysed %d" % (run.command, s["files"], s["functions"],
                                       s["unparsed_regions"], s["lines_not_analysed"])]
     out += ["error: " + e for e in run.errors]
     by_place = {(e.function.file, e.function.line, e.function.name): e for e in run.entries}
@@ -81,8 +81,8 @@ def text(run: Run, show_all: bool = False) -> str:
                        + "  %s:%d %s%s" % (e.function.file, e.function.line, e.function.name,
                                            " (%s)" % e.label if e.label else ""))
     if run.improved:
-        out.append("%d baseline values improved; --write-baseline records them" % run.improved)
-    out.append("result: %s (%d findings, %d suppressed)" % (run.result, s["findings"], s["suppressed"]))
+        out.append("improved on the baseline: %d values; --write-baseline records them" % run.improved)
+    out.append("result: %s, findings %d, suppressed %d" % (run.result, s["findings"], s["suppressed"]))
     return "\n".join(out) + "\n"
 
 
