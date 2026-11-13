@@ -18,6 +18,7 @@
     {"file": "tests/boundary.cpp", "standard": "c++17", "includes": ["include"]},
     {"file": "tests/fuzz_boundary.cpp", "standard": "c++17", "includes": ["include"]},
     {"file": "tests/hardening.cpp", "standard": "c++17", "includes": ["include"]},
+    {"file": "tests/standard.cpp", "standard": "c++17", "includes": ["include"], "defines": ["LORICA_TEST_STANDARD=17"]},
     {"file": "src/contract_violation.cpp", "standard": "c++17", "includes": ["include"], "defines": ["LORICA_BUILDING_CONTRACTS"]},
     {"file": "tests/contracts_observe.cpp", "standard": "c++17", "includes": ["include"], "defines": ["LORICA_CONTRACT_EVALUATION_SEMANTIC=observe"]},
     {"file": "tests/contracts_overlay.cpp", "standard": "c++17", "includes": ["include"], "defines": ["LORICA_CONTRACT_EVALUATION_SEMANTIC=observe"]},

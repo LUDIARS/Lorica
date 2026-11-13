@@ -1,6 +1,6 @@
 {
   "name": "build-hardening",
-  "description": "Apply explicit compiler/linker mitigations (baseline and extended profiles) and unsafe C API rejection to locally built targets, and distribute the library as a CMake package; reject unsupported configurations.",
+  "description": "Apply explicit compiler/linker mitigations (baseline and extended profiles) and unsafe C API rejection to locally built targets, select ISO C++23 for cxx_std_23 where CMake maps it to a draft mode, and distribute the library as a CMake package; reject unsupported configurations.",
   "presetRules": [],
   "templateRules": [],
   "membership": [{"pathPattern": "(^|/)cmake/(LoricaHardening\\.cmake|LoricaInject\\.cmake|LoricaConfig\\.cmake\\.in)$"}, {"pathPattern": "^CMakeLists\\.txt$"}, {"pathPattern": "(^|/)include/lorica/unsafe_api\\.hpp$"}],

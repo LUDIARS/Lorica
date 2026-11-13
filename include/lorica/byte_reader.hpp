@@ -5,6 +5,7 @@
 #endif
 
 #include <lorica/checked_integer.hpp>
+#include <array>
 #include <bit>
 #include <climits>
 #include <concepts>
@@ -51,17 +52,10 @@ public:
     template<checked_integral T, std::endian Order>
         requires(Order == std::endian::big || Order == std::endian::little)
     [[nodiscard]] constexpr std::optional<T> read() noexcept {
-        using U = std::make_unsigned_t<std::remove_cv_t<T>>;
         const auto part = take(sizeof(T));
         if (!part) return std::nullopt;
-        U value = 0;
-        for (std::size_t index = 0; index < sizeof(T); ++index) {
-            const std::size_t source = Order == std::endian::big ? index : sizeof(T) - 1 - index;
-            value = static_cast<U>((sizeof(T) > 1 ? static_cast<U>(value << CHAR_BIT) : U{0}) |
-                                   static_cast<U>((*part)[source]));
-        }
         // C++20 defines the conversion to a signed type as modular (two's complement).
-        return static_cast<T>(value);
+        return static_cast<T>(assemble<std::make_unsigned_t<std::remove_cv_t<T>>, Order>(*part));
     }
 
     template<checked_integral T>
@@ -87,6 +81,44 @@ public:
     }
 
 private:
+    // The unsigned value of sizeof(U) bytes stored in Order. With C++23's
+    // std::byteswap on a big- or little-endian host the bytes are copied as one
+    // value and swapped when Order differs from the host's; otherwise they are
+    // shifted in one by one. Both give the same value; the bound is already checked.
+    template<class U, std::endian Order>
+    [[nodiscard]] static constexpr U assemble(std::span<const std::byte> part) noexcept {
+#if defined(__cpp_lib_byteswap) && __cpp_lib_byteswap >= 202110L
+        if constexpr (std::endian::native == std::endian::big ||
+                      std::endian::native == std::endian::little) {
+            return swapped<U, Order>(part);
+        } else
+#endif
+        {
+            return shifted<U, Order>(part);
+        }
+    }
+
+#if defined(__cpp_lib_byteswap) && __cpp_lib_byteswap >= 202110L
+    template<class U, std::endian Order>
+    [[nodiscard]] static constexpr U swapped(std::span<const std::byte> part) noexcept {
+        std::array<std::byte, sizeof(U)> raw{};
+        for (std::size_t index = 0; index < sizeof(U); ++index) raw[index] = part[index];
+        const U value = std::bit_cast<U>(raw);
+        return Order == std::endian::native ? value : std::byteswap(value);
+    }
+#endif
+
+    template<class U, std::endian Order>
+    [[nodiscard]] static constexpr U shifted(std::span<const std::byte> part) noexcept {
+        U value = 0;
+        for (std::size_t index = 0; index < sizeof(U); ++index) {
+            const std::size_t source = Order == std::endian::big ? index : sizeof(U) - 1 - index;
+            value = static_cast<U>((sizeof(U) > 1 ? static_cast<U>(value << CHAR_BIT) : U{0}) |
+                                   static_cast<U>(part[source]));
+        }
+        return value;
+    }
+
     std::span<const std::byte> bytes_{};
     std::size_t offset_ = 0;
 };

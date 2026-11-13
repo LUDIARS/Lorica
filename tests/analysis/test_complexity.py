@@ -37,7 +37,10 @@ EXPECTED = {
 
 # Real Lorica functions, cyclomatic complexity counted by hand from the source.
 LORICA_CYCLOMATIC = {
-    ("include/lorica/byte_reader.hpp", "lorica::byte_reader::read"): 5,      # if, for, ?:, ?:
+    ("include/lorica/byte_reader.hpp", "lorica::byte_reader::read"): 2,      # if
+    ("include/lorica/byte_reader.hpp", "lorica::byte_reader::assemble"): 3,  # if constexpr, ||
+    ("include/lorica/byte_reader.hpp", "lorica::byte_reader::swapped"): 3,   # for, ?:
+    ("include/lorica/byte_reader.hpp", "lorica::byte_reader::shifted"): 4,   # for, ?:, ?:
     ("include/lorica/byte_view.hpp", "lorica::byte_view::make"): 4,          # if, ||, &&
     ("include/lorica/byte_view.hpp", "lorica::byte_view::subview"): 3,       # if, ?:
     ("include/lorica/checked_integer.hpp", "lorica::checked_add"): 7,        # if, if, &&, ||, &&, else if

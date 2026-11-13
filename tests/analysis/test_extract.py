@@ -197,7 +197,8 @@ SELF_EXPECTED = {
         "lorica::byte_reader::offset", "lorica::byte_reader::remaining",
         "lorica::byte_reader::take", "lorica::byte_reader::skip", "lorica::byte_reader::read",
         "lorica::byte_reader::read_big_endian", "lorica::byte_reader::read_little_endian",
-        "lorica::byte_reader::read_prefixed"],
+        "lorica::byte_reader::read_prefixed", "lorica::byte_reader::assemble",
+        "lorica::byte_reader::swapped", "lorica::byte_reader::shifted"],
     "include/lorica/byte_view.hpp": [
         "lorica::byte_view::make", "lorica::byte_view::size", "lorica::byte_view::at",
         "lorica::byte_view::subview", "lorica::byte_view::byte_view"],

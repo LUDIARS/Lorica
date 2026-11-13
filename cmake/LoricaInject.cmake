@@ -11,6 +11,16 @@
 include_guard(GLOBAL)
 include("${CMAKE_CURRENT_LIST_DIR}/LoricaHardening.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/LoricaContracts.cmake")
+# SPEC-LR-CXX23: cxx_std_23 means ISO C++23 in the whole build. Languages are
+# usually enabled after this file, so the switch is replaced from the override
+# hook CMake reads right after the compiler's settings.
+include("${CMAKE_CURRENT_LIST_DIR}/LoricaCxxStandard.cmake")
+if(CMAKE_CXX_COMPILER_LOADED)
+    lorica_use_iso_cxx23()
+elseif(NOT CMAKE_USER_MAKE_RULES_OVERRIDE_CXX STREQUAL "${CMAKE_CURRENT_LIST_DIR}/LoricaCxxStandardOverride.cmake")
+    set(LORICA_CONSUMER_MAKE_RULES_OVERRIDE_CXX "${CMAKE_USER_MAKE_RULES_OVERRIDE_CXX}")
+    set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX "${CMAKE_CURRENT_LIST_DIR}/LoricaCxxStandardOverride.cmake")
+endif()
 if(NOT LORICA_TARGETS)
     message(FATAL_ERROR "Lorica injection requires -DLORICA_TARGETS=target1;target2")
 endif()

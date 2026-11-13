@@ -203,6 +203,10 @@ class LocatorTests(unittest.TestCase):
         self.assertIsNone(declaration_offset(source, text, 1, "nowhere"))
 
 
+# Paths come back in the host's form (os.path.normpath): backslashes on Windows.
+N = os.path.normpath
+
+
 class FlagTests(unittest.TestCase):
     UNIT = Unit("g++", "/build", "/src/a.cpp", (
         "-fpermissive", "-w", "-Wno-invalid-constexpr", "-Wno-error=invalid-constexpr", "-fimplicit-constexpr",
@@ -211,13 +215,13 @@ class FlagTests(unittest.TestCase):
         "-DX=1", "-Wall", "-Werror", "/src/a.cpp"), "20")
 
     def test_strict_flags_appended_and_defeating_flags_removed(self):
-        mapped = lambda p: "/copy" + p if p.startswith(("/include", "/src")) else p   # noqa: E731
+        mapped = lambda p: N("/copy") + p if p.startswith((N("/include"), N("/src"))) else p   # noqa: E731
         argv, removed = compiler.strict_command(GCC, self.UNIT, "17", mapped)
         self.assertEqual(removed, ["-fpermissive", "-w", "-Wno-invalid-constexpr", "-Wno-error=invalid-constexpr",
                                    "-fimplicit-constexpr", "-Wno-pedantic", "-Wno-c++20-extensions", "-Wno-error",
                                    "-Wno-gnu-statement-expression"])
-        self.assertEqual(argv, ["g++", "-I", "/copy/include", "-I/abs/inc", "-isystem", "/sys", "-DX=1", "-Wall",
-                                "-Werror", "/copy/src/a.cpp", "-std=c++17", "-fsyntax-only", "-pedantic-errors",
+        self.assertEqual(argv, ["g++", "-I", N("/copy/include"), "-I" + N("/abs/inc"), "-isystem", N("/sys"),
+                                "-DX=1", "-Wall", "-Werror", N("/copy/src/a.cpp"), "-std=c++17", "-fsyntax-only", "-pedantic-errors",
                                 "-Werror=invalid-constexpr", "-H", "-fdiagnostics-color=never"])
         argv, _ = compiler.strict_command(CLANG, self.UNIT, "23", mapped, "/tmp/witness.cpp")
         self.assertEqual(argv[-8:], ["/tmp/witness.cpp", "-std=c++23", "-fsyntax-only", "-pedantic-errors",
@@ -237,7 +241,7 @@ class FlagTests(unittest.TestCase):
                 {"directory": "/b", "file": "d.cc", "arguments": ["clang++", "d.cc"]}]))
             units = compiler.database_units(path)
             self.assertEqual([(u.compiler, u.file, u.std) for u in units],
-                             [("g++", "/s/a.cpp", "20"), ("clang++", "/b/d.cc", None)])
+                             [("g++", N("/s/a.cpp"), "20"), ("clang++", N("/b/d.cc"), None)])
             Path(path).write_text("{")
             with self.assertRaises(ToolError):
                 compiler.database_units(path)
@@ -276,18 +280,18 @@ Multiple include guards may be useful for:
     def test_gcc(self):
         out = compiler.parse(self.GCC_OUTPUT, "/")
         self.assertEqual(out.probes, {4})
-        self.assertEqual(out.headers, ["/copy/include/lib/a.hpp", "/copy/include/lib/b.hpp"])
+        self.assertEqual(out.headers, [N("/copy/include/lib/a.hpp"), N("/copy/include/lib/b.hpp")])
         self.assertEqual(out.errors, [compiler.Diagnostic(
-            "/copy/include/lib/b.hpp", 9, "call to non-'constexpr' function 'int NC::size_nc() const'", (
-                ("/copy/src/u.cpp", 3, "required from here"),
-                ("/copy/include/lib/b.hpp", 2, "'int NC::size_nc() const' declared here")))])
+            N("/copy/include/lib/b.hpp"), 9, "call to non-'constexpr' function 'int NC::size_nc() const'", (
+                (N("/copy/src/u.cpp"), 3, "required from here"),
+                (N("/copy/include/lib/b.hpp"), 2, "'int NC::size_nc() const' declared here")))])
 
     def test_clang(self):
         out = compiler.parse(self.CLANG_OUTPUT, "/")
         self.assertEqual(out.probes, {0})
         self.assertEqual(out.errors, [compiler.Diagnostic(
-            "/copy/a.hpp", 7, "constexpr declaration of 'get' follows non-constexpr declaration",
-            (("/copy/a.hpp", 6, "previous declaration is here"),))])
+            N("/copy/a.hpp"), 7, "constexpr declaration of 'get' follows non-constexpr declaration",
+            ((N("/copy/a.hpp"), 6, "previous declaration is here"),))])
 
 
 class ExecuteTests(unittest.TestCase):
@@ -444,8 +448,8 @@ class TrialTests(unittest.TestCase):
         self.assertIn("witness does not compile", states["log_value"][1])
         self.assertIn("non-constant condition", states["log_value"][1])
         self.assertIn("also compiles without the change", states["tmpl"][1])
-        self.assertTrue(states["bad"][1].endswith("lib/b.hpp:5: fake rejection"))
-        self.assertTrue(states["caller"][1].endswith("lib/b.hpp:7: call to non-'constexpr' function 'int base(int)'"))
+        self.assertTrue(states["bad"][1].replace(os.sep, "/").endswith("lib/b.hpp:5: fake rejection"))
+        self.assertTrue(states["caller"][1].replace(os.sep, "/").endswith("lib/b.hpp:7: call to non-'constexpr' function 'int base(int)'"))
         self.assertIn("only available with '-std=c++20'", states["risky"][1])     # -pedantic-errors kept
         self.assertIn("call to non-'constexpr'", states["calls"][1])             # -Werror=invalid-constexpr
         self.assertEqual(data["constexpr"]["configurations"][0]["removed_flags"],

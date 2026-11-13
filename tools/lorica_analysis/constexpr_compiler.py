@@ -84,7 +84,9 @@ def execute(argv: List[str], cwd: Optional[str], timeout: float) -> Tuple[Option
         return None, "%s: timed out after %g s" % (argv[0], timeout)
     except OSError as error:
         return None, "%s: %s" % (argv[0], error.strerror or error)
-    return done.returncode, (done.stdout + done.stderr).decode("utf-8", errors="replace")
+    # Windows programs end lines with CRLF; diagnostics are parsed line by line.
+    text = (done.stdout + done.stderr).decode("utf-8", errors="replace")
+    return done.returncode, text.replace("\r\n", "\n")
 
 
 def detect(command: str, timeout: float) -> Toolchain:
@@ -170,8 +172,9 @@ def strict_command(toolchain: Toolchain, unit: Unit, std: str, to_copy, source: 
         elif argument.startswith(_PATH_OPTIONS) and not argument.startswith("-include-pch"):
             option = next(o for o in _PATH_OPTIONS if argument.startswith(o))
             argv.append(option + path(argument[len(option):]))
-        elif not argument.startswith("-") and os.path.normpath(os.path.join(unit.directory, argument)) == unit.file:
-            argv.append(source or to_copy(unit.file))
+        elif not argument.startswith("-") and \
+                os.path.normpath(os.path.join(unit.directory, argument)) == os.path.normpath(unit.file):
+            argv.append(source or to_copy(os.path.normpath(unit.file)))
         else:
             argv.append(argument)
     argv += ["-std=c++" + std] + list(STRICT) + (list(_CLANG) if toolchain.family == "clang" else [])
@@ -180,7 +183,8 @@ def strict_command(toolchain: Toolchain, unit: Unit, std: str, to_copy, source: 
 
 _PROBE = re.compile(r"lorica-probe:(\d+)")
 _HEADER = re.compile(r"^\.+ (\S.*)$")
-_LOCATION = re.compile(r"^(?P<file>[^\s:][^:]*):(?P<line>\d+):(?:\d+:)?\s*"
+# A file may start with a Windows drive (C:\ or C:/), whose colon is not a separator.
+_LOCATION = re.compile(r"^(?P<file>(?:[A-Za-z]:[\\/])?[^\s:][^:]*):(?P<line>\d+):(?:\d+:)?\s*"
                        r"(?:(?P<severity>fatal error|error|warning|note): )?(?P<message>.*)$")
 
 

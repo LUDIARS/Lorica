@@ -60,10 +60,19 @@ def suppressions(source: SourceFile, function: Function) -> Dict[str, str]:
     return found
 
 
+def _shown_path(file: str, root: str) -> str:
+    """file relative to root, or absolute where Windows puts them on different drives."""
+    absolute = os.path.abspath(file)
+    try:
+        return os.path.relpath(absolute, root).replace(os.sep, "/")
+    except ValueError:
+        return absolute.replace(os.sep, "/")
+
+
 def keys(entries: Iterable[Entry], root: str) -> List[str]:
     out, seen = [], {}
     for entry in entries:
-        path = os.path.relpath(os.path.abspath(entry.function.file), root).replace(os.sep, "/")
+        path = _shown_path(entry.function.file, root)
         key = "%s::%s(%d)" % (path, entry.function.name, entry.function.parameters)
         seen[key] = seen.get(key, 0) + 1
         out.append(key if seen[key] == 1 else "%s#%d" % (key, seen[key]))

@@ -11,7 +11,8 @@ Design: small independently usable headers and build modules, no allocator. The
 only process-wide mutable state is the violation handler of `Lorica::contracts`
 (an atomic pointer, see [contracts](contracts.md)). `checked_size`, `byte_view` and `input_budget` are C++17;
 `checked_integer`, `bounded_text` and `byte_reader` need C++20 (concepts) and use
-C++23/26 library features when present (see [checked APIs](checked-apis.md)). The
+C++23/26 library features when present (see [checked APIs](checked-apis.md)).
+C++23 is fully supported and tested ([SPEC-LR-CXX23](#SPEC-LR-CXX23)). The
 examples do not require `std::expected` or ownership emulation. Errors are
 optional/false, not exceptions or abort for ordinary rejected input. No C
 ABI/handle registry is promised in v0.1.
@@ -79,6 +80,62 @@ preconditions and terminate on violation. Clang CFI, runtime hardware enforcemen
 and hardening of prebuilt code are outside these profiles. The binary verifier
 checks PIE, NX-stack and full RELRO on ELF, and selected flags on PE. Instruction
 coverage, CFG tables and performance require separate verification.
+
+## Language standards {#SPEC-LR-CXX23}
+
+| Part | Minimum | Built and tested as |
+| --- | --- | --- |
+| `checked_size`, `byte_view`, `input_budget`, `Lorica::protection` (`sealed_value`, `sealed_pack`) | C++17 | C++17 and C++23 |
+| `Lorica::contracts` (`contracts.hpp`, `contract_overlay.hpp`) | C++17 | C++17, C++20 (observe, overlay) and C++23 |
+| `checked_integer`, `bounded_text`, `byte_reader` | C++20 | C++20 and C++23 |
+| `unsafe_api.hpp` through `lorica_deprecate_unsafe_apis` | C++ (any) | the probes as C++20 and C++23 |
+
+C++23 is a supported standard, not merely tolerated: the C++ tests of each part
+in the table run again as C++23 under a `.cxx23` name ([SPEC-LR-VERIFY](../test/verification.md)).
+`Lorica::protection` and `Lorica::contracts` are built as C++17; the protection
+source is also compiled as C++23 for its tests, and the C++23 contract tests use the
+C++17 runtime, as consumers do. Tests of build configuration and of the Python
+tools (refusals, injection, semantic switch, profiles, consumer package, binary
+verifier, source analysis) do not depend on the language standard and run once. A header used below its minimum stops with `#error` instead of
+compiling differently; that rule is unchanged. Under C++23 only `byte_reader`
+uses a newer library facility (`std::byteswap`), with the same results.
+
+C++23 means ISO C++23: in a target that requests `cxx_std_23`, the language
+version (`_MSVC_LANG` on MSVC, which keeps `__cplusplus` at 199711L by default,
+otherwise `__cplusplus`) must be at least 202100L (GCC 11-13 `-std=c++2b`) and
+below 202400L. `lorica.standard.cxx23` checks this; `.cxx17` and `.cxx20` check
+the other two requests.
+
+| Toolchain | `cxx_std_23` with Lorica | Status |
+| --- | --- | --- |
+| MSVC 19.52+ (Visual Studio 2026 18.12+) | `/std:c++23` (ISO) | Supported, tested |
+| MSVC 19.29-19.51 | CMake's `/std:c++latest`, which also enables C++26 draft features; there is no ISO C++23 switch | C++23 tests run in that mode; `lorica.standard.cxx23` is not run, so it is not ISO C++23 support |
+| GCC 11+, Clang 17+ (Linux) | CMake's `-std=c++23` or `-std=c++2b` | Expected to qualify; record each run separately |
+| clang-cl | Unchanged (CMake's mapping) | Not qualified |
+
+CMake (through 4.4 at least) maps `cxx_std_23` to `-std:c++latest` for every MSVC
+from 19.29 on. `cmake/LoricaCxxStandard.cmake` provides `lorica_use_iso_cxx23()`,
+which replaces that switch with `-std:c++23` only for MSVC 19.52 or newer and only
+while it is a latest-draft switch. It changes no other standard and no draft
+request (`cxx_std_26` keeps its mapping). It sets directory-scope variables, so
+it reaches what it is called for:
+
+- Lorica's own build: its directory tree, never a parent project that adds Lorica
+  with `add_subdirectory`; such a parent includes the module and calls the macro
+  itself after `project()`.
+- `find_package(Lorica)`: the directory that calls it and its subdirectories.
+  Called from inside a function, it reaches only that function's scope; call
+  `find_package` at directory scope or call the macro there.
+- `LoricaInject.cmake`: the whole build. The hook runs before the consuming
+  project enables C++, so it installs `LoricaCxxStandardOverride.cmake` as
+  `CMAKE_USER_MAKE_RULES_OVERRIDE_CXX`, which CMake reads right after the
+  compiler's own settings; an override the project had set is included first.
+
+A later explicit assignment of `CMAKE_CXX23_STANDARD_COMPILE_OPTION` by the
+consuming project wins. `lorica_iso_cxx23_supported(result)` reports whether
+`cxx_std_23` selects ISO C++23 in the calling directory, with the reason in
+`result_REASON`. The standard selected is a build property: it adds no runtime
+check and no security guarantee beyond the contracts above.
 
 ## Unsafe C API rejection {#SPEC-LR-UNSAFE-API}
 

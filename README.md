@@ -1,9 +1,11 @@
 # Lorica
 
+[日本語](README.ja.md)
+
 Composable security libraries for C++ services. Project code: **Lr**.
 Lorica means armour: these components add layers of protection, not complete memory safety.
 
-Components (C++17 unless noted, CMake 3.24+):
+Components (C++17 unless noted, all also tested as C++23; CMake 3.24+):
 
 | Component | Contract |
 | --- | --- |
@@ -14,6 +16,7 @@ Components (C++17 unless noted, CMake 3.24+):
 | `lorica_harden_target` | Target-local baseline hardening, with an optional strict `EXTENDED` profile and a configure-time capability query |
 | `lorica_deprecate_unsafe_apis` | Uses of `strcpy`/`strcat`/`sprintf`/`vsprintf`/`wcscpy`/`wcscat` in a target's C++ sources fail to compile; every deprecation becomes an error; [limits](spec/feature/security-contracts.md#SPEC-LR-UNSAFE-API) |
 | `LoricaInject.cmake` | External CMake injection for an explicit target allowlist |
+| `lorica_use_iso_cxx23` | Makes `cxx_std_23` select ISO `/std:c++23` on MSVC 19.52+ instead of CMake's `/std:c++latest` ([standards](spec/feature/security-contracts.md#SPEC-LR-CXX23)) |
 | `tools/verify_binary.py` | Selected PE/ELF executable metadata checks; does not execute the binary |
 | `tools/lorica_analyze.py` | Assertion-style source gates read from C/C++ text: `complexity` (cyclomatic, cognitive, nesting, parameters, NLOC), `shared-state` (per-datum locksets, atomics and their memory orders) and `constexpr` (tries the specifier with GCC/Clang in a copy of the tree); thresholds and a baseline, exit 1 on violation; reports what it could not parse or resolve ([limits](spec/feature/source-analysis.md#SPEC-LR-ANALYZE)) |
 
@@ -95,6 +98,24 @@ STL hardening and CET-compatible linking. See the
 [unsafe API rejection](spec/feature/security-contracts.md#SPEC-LR-UNSAFE-API).
 `format_into` needs a library with `__cpp_lib_format`.
 
+## Standards and toolchains
+
+| Standard | Status |
+| --- | --- |
+| C++17 | Minimum for `checked_size`, `byte_view`, `input_budget`, `Lorica::protection` and `Lorica::contracts` |
+| C++20 | Minimum for `checked_integer`, `bounded_text` and `byte_reader` |
+| C++23 | Fully supported: the tests of every C++ part also run as C++23 |
+
+A header used below its minimum stops with `#error`. C++23 means ISO C++23, not a
+draft mode: CMake maps `cxx_std_23` to `/std:c++latest` (C++26 draft features
+included) for MSVC, so Lorica switches it to `/std:c++23` on MSVC 19.52+
+(Visual Studio 2026 18.12+). `find_package(Lorica)` does this for the calling
+directory and its subdirectories, `LoricaInject.cmake` for the whole build, and
+Lorica's own build for its own tree only. Older MSVC has no ISO C++23 switch: the
+C++23 tests run under `/std:c++latest` and `lorica.standard.cxx23` reports
+"Not Run". Linux GCC 11+/Clang 17+ use CMake's `-std=c++23`. See
+[SPEC-LR-CXX23](spec/feature/security-contracts.md#SPEC-LR-CXX23).
+
 ## Protection limits
 
 `byte_view` is non-owning. A caller must supply the actual size of a live contiguous
@@ -118,6 +139,8 @@ or make a compromised process trustworthy. Later conflicting build flags can
 weaken protection: inspect actual commands and artifacts. No universal memory
 barrier, secure allocator, cryptography or authentication is implemented here.
 `std::atomic_thread_fence` (thread ordering) is unrelated to these protections.
+
+C++23 support is a build property; it adds no runtime check or security guarantee.
 
 ## Contracts (C++26 emulation)
 

@@ -26,13 +26,39 @@ must not be copyable. Tests use explicit abort checks so Release cannot disable
 assertions.
 Fuzzing supplements these cases; it cannot prove absence of vulnerabilities.
 
+## Language standards (SPEC-LR-CXX23)
+
+Each C++ test of a C++17 or C++20 part runs again as C++23 under a `.cxx23` name:
+`lorica.boundary.cxx23`, `lorica.hardening_stops.cxx23` (and `.cxx23.fortify`),
+`lorica.unsafe_api.<probe>.cxx23`, `lorica.protection.cxx23`,
+`lorica.protection_write_denied.cxx23`, `lorica.protection.rejects_<type>.cxx23`,
+`lorica.pack.unit.cxx23` and `lorica.pack.stops.<mode>.cxx23` (the protection source
+compiled as C++23 into a test-only library), `lorica.contracts.ignore.cxx23`,
+`lorica.contracts.<variant>.cxx23`, `lorica.contracts.overlay_<variant>.cxx23` and
+`lorica.contracts.rejected.<case>.cxx23`; `lorica.checked.cxx23` and
+`lorica.contracts.observe/overlay.cxx23` already existed. The unsafe API runner
+controls and refusals, and the build-configuration and tool tests, do not depend on
+the standard and run once; so do the Linux-only `lorica.protection_linux`, the
+ThreadSanitizer-only `lorica.pack.readers_tsan` and `tests/contract_modules`.
+Where the compiler has no C++23 mode, `lorica.boundary`, `hardening_stops` and
+`protection` register their `.cxx23` tests disabled; the others are omitted.
+
+| Test | Checks |
+| --- | --- |
+| `lorica.standard.cxx17`, `.cxx20`, `.cxx23` | `tests/standard.cpp` built with `cxx_std_17`/`20`/`23` prints the language version (`_MSVC_LANG` on MSVC, otherwise `__cplusplus`) and fails outside [201703, 202002), [202002, 202100) and [202100, 202400): a C++23 request that selected a C++26 draft mode (MSVC `/std:c++latest` reports 202400) fails. Not run where `lorica_iso_cxx23_supported` says `cxx_std_23` is a draft mode |
+
+On MSVC, confirm from a detailed build log that each C++23 target compiles with
+`-std:c++23` and none with `std:c++latest` (the Visual Studio generator puts the
+switch in `AdditionalOptions`); the consumer paths (`find_package`,
+`LoricaInject.cmake`, subdirectories) are checked from the generated projects.
+
 ## Checked APIs, extended profile and unsafe API rejection
 
 | Test | Checks |
 | --- | --- |
 | `lorica.checked.cxx20`, `lorica.checked.cxx23` | `tests/checked.cpp` as C++20 and as C++23: integer, text and reader contracts as compile-time and run-time checks; every pair of 8-bit operands against the exact result in a wider type, and boundary cases of 32- and 64-bit types; that bool/character types, mixed operand types and explicit template arguments for all seven binary functions, `narrow` and `saturate_cast` (also next to `byte_view.hpp`'s `size_t` overloads), temporary and read-only destinations, arrays of unknown bound, `nullptr` and a temporary container for `byte_reader` do not compile; array sources by extent, a null pointer source, overlapping copies, formatted output holding a terminator, a throwing formatter, 4- and 8-byte reads. Built with the unsafe API rejection and the extended profile where supported |
 | `lorica.checked.format.cxx20`, `lorica.checked.format.cxx23` | The same executables with an argument: pass where the library defines `__cpp_lib_format`, otherwise reported as skipped (exit 77), so the `format_into` checks are never counted as passed without running |
-| `lorica.checked.runtime_format` | `tests/run_build_probe.cmake` builds a `format_into` call with a run-time `std::string` format, which must fail with "constant expression" (CWE-134); skipped where the library has no `<format>` |
+| `lorica.checked.runtime_format` | `tests/run_build_probe.cmake` builds a `format_into` call with a run-time `std::string` format, which must fail with "constant expression" or, from MSVC in any display language, C7595 (CWE-134); skipped where the library has no `<format>` |
 | `lorica.profiles.*` | Native Linux Ninja/Makefile consumers: configure, compile and compare C/C++ commands for baseline (executable, shared and static library), direct EXTENDED, repeated calls and promotion, and each target's link options and PIC (full RELRO and NX stack for linked binaries, PIE for executables). The ordered `-U`/`-D` pairs must follow a toolchain's `-U_GLIBCXX_ASSERTIONS`. In Release, baseline must request FORTIFY 3 whenever the compiler itself reports level 3 at `-O2`, whatever Lorica's probes say. Single-config runs cover Release, Debug, empty, RelWithDebInfo and MinSizeRel. Simulated missing flag, lower libc level, unknown CPU, older compiler, 32-bit ABI, missing standard-library hardening and missing zero initialization, plus a real Release `-O0` override, check baseline continuation and explicit EXTENDED refusal; a second flag scope (Release `-O0`, an unknown flag) must not reuse the outer result. Multi-config commands are checked separately per generated configuration. `harness_control` injects nothing and must be reported as an unexpectedly successful strict configuration |
 | `lorica.hardening_stops`, `lorica.hardening_stops.fortify` | `tests/hardening.cpp` built with EXTENDED, driven by `tests/hardening_fault.py`: an in-range run exits 0; an out-of-range `operator[]` and an empty `optional`'s value must stop the child (POSIX SIGABRT/SIGILL/SIGTRAP, Windows 0xC0000409). `.fortify`: in optimized Linux configurations the build must have `_FORTIFY_SOURCE` 3 (checked at compile time) and a `memcpy` past a heap buffer of run-time size, which only level 3 sees, must stop with glibc's "buffer overflow detected"; a stop by the stack protector or the heap's own checks does not count. In Debug, on Windows and under AddressSanitizer (which reports that copy first) `.fortify` is skipped (exit 77), not passed. A normal exit, another error or a timeout fails. `lorica.hardening_stops.harness_control` (POSIX): a child that exits 1 instead of stopping must be reported |
 | `lorica.unsafe_api.*` | `tests/unsafe_api_probes.cmake`: real targets, hardened and built with `-Wno-error` so only Lorica's promotion makes the error, with `lorica_deprecate_unsafe_apis` applied, each built by `tests/run_build_probe.cmake`, which judges by exit code and compiler output, not generator text. Bounded code must build; a direct `std::strcpy` call, a function pointer to it, a macro alias of `std::sprintf`, a parenthesized `::wcscat`, a `-D` alias of `std::strcat`, `std::vsprintf`, `std::wcscpy`, a `strcpy` in a header that arrives only through a linked target's precompiled header, and (GCC/Clang) a call inside a `[[deprecated]]` function and one under a later `-Wno-deprecated-declarations` must fail with the Lorica diagnostic; an earlier `-include` of `<cstring>`, `<cstdio>` or `<cwchar>` must fail with the header's order error. The probes live in CMake, not a C++ source, because they are deliberately unsafe. Controls: `harness_reject_built` and `harness_reject_diagnostic` must be reported by the runner as a built probe and as a missing diagnostic |

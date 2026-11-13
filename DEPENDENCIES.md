@@ -1,11 +1,13 @@
 # Dependency and memory-safety review
 
-Runtime: C++17 standard library (C++20 for the checked API headers) and
+Runtime: C++17 standard library (C++20 for the checked API headers), tested as
+C++23 as well, and
 Windows/Linux virtual-memory APIs. `Lorica::contracts` is a shared library (DLL /
 `.so`, SONAME `liblorica_contracts.so.0` on Linux) deployed with every consumer; it
 needs the shared C++ runtime and writes to stderr with stdio. No third-party packages, vendored sources,
 transitive package dependencies, network downloads or install-time code execution.
-Build: CMake 3.24+ and a supported compiler/linker. Optional artifact inspection:
+Build: CMake 3.24+ and a supported compiler/linker; ISO C++23 on MSVC needs
+19.52+ (Visual Studio 2026 18.12+, `/std:c++23`). Optional artifact inspection:
 Python 3 standard library, plus trusted binutils `readelf` for ELF. Optional fuzzing:
 Linux Clang's compiler-rt/libFuzzer; instrumentation is test-only.
 
@@ -103,3 +105,11 @@ changes no definition and affects compilation only. With Clang it reads glibc's
 the command line there (checked with libstdc++ 13, GCC 13 and Clang 18; libc++ not
 checked). Runtime tests and Linux validation remain separately
 recorded; successful Windows compilation is not evidence of those checks.
+
+C++23 audit (2026-11-13): no dependency was added. `LoricaCxxStandard.cmake`
+changes only CMake's C++23 switch for MSVC 19.52+ from `/std:c++latest` to the
+ISO `/std:c++23` shipped with the compiler; `LoricaCxxStandardOverride.cmake`
+applies the same through CMake's documented override hook for injection and keeps
+a project's own override. Under C++23 `byte_reader` uses `std::byteswap` from
+`<bit>`, after the same length check; no other header changed behavior. Linux
+GCC/Clang C++23 runs are recorded separately from the Windows evidence.

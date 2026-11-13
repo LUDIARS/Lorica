@@ -209,6 +209,21 @@ constexpr bool reader() {
     ok = ok && empty && empty->empty() && zero.remaining() == 0;
     lorica::byte_reader nothing;
     ok = ok && nothing.size() == 0 && !nothing.read_little_endian<std::uint8_t>();
+
+    // Wide integers in both orders: the C++23 std::byteswap path and the C++20
+    // byte-by-byte path must agree, so both standards run the same expectations.
+    constexpr std::array<std::byte, 8> wide{
+        std::byte{0x01}, std::byte{0x23}, std::byte{0x45}, std::byte{0x67},
+        std::byte{0x89}, std::byte{0xAB}, std::byte{0xCD}, std::byte{0xEF}};
+    const auto bytes = std::span<const std::byte>(wide);
+    ok = ok && lorica::byte_reader{bytes}.read_big_endian<std::uint64_t>().value() == 0x0123456789ABCDEFULL;
+    ok = ok && lorica::byte_reader{bytes}.read_little_endian<std::uint64_t>().value() == 0xEFCDAB8967452301ULL;
+    ok = ok && lorica::byte_reader{bytes}.read_big_endian<std::uint32_t>().value() == 0x01234567U;
+    ok = ok && lorica::byte_reader{bytes}.read_little_endian<std::uint32_t>().value() == 0x67452301U;
+    ok = ok && lorica::byte_reader{bytes.subspan(4)}.read_big_endian<std::int32_t>().value() ==
+                   static_cast<std::int32_t>(0x89ABCDEFU);
+    ok = ok && lorica::byte_reader{bytes}.read_little_endian<std::int64_t>().value() ==
+                   static_cast<std::int64_t>(0xEFCDAB8967452301ULL);
     return ok;
 }
 static_assert(reader());

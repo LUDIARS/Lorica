@@ -3,6 +3,10 @@ set_and_check(LORICA_INCLUDE_DIR "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
 include("${CMAKE_CURRENT_LIST_DIR}/LoricaTargets.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/LoricaHardening.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/LoricaContracts.cmake")
+# SPEC-LR-CXX23: find_package evaluates this file in the caller's scope, so
+# cxx_std_23 means ISO C++23 for the calling directory and its subdirectories.
+include("${CMAKE_CURRENT_LIST_DIR}/LoricaCxxStandard.cmake")
+lorica_use_iso_cxx23()
 set_property(GLOBAL PROPERTY LORICA_UNSAFE_API_HEADER "${LORICA_INCLUDE_DIR}/lorica/unsafe_api.hpp")
 # Components are the installed targets: boundary, and protection and contracts
 # where they were built.

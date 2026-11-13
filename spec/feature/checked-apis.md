@@ -7,7 +7,9 @@ CWE-134, CWE-170) and pointer arithmetic over untrusted bytes (CWE-125, CWE-130)
 They are the replacements `lorica_deprecate_unsafe_apis` points to
 ([SPEC-LR-UNSAFE-API](security-contracts.md#SPEC-LR-UNSAFE-API)).
 
-Language: C++20 is the minimum (concepts, `std::in_range`, `std::span`, ranges).
+Language: C++20 is the minimum (concepts, `std::in_range`, `std::span`, ranges);
+C++23 is fully supported and tested ([SPEC-LR-CXX23](security-contracts.md#SPEC-LR-CXX23)).
+Under C++23, `byte_reader` uses `std::byteswap` with the same results.
 `format_into` exists only where the library defines `__cpp_lib_format`
 (libstdc++ 13, libc++ 19, the MSVC STL); libc++ 18 ships `<format>` without it. Each header
 stops compilation with an `#error` under an older standard instead of compiling
@@ -96,7 +98,10 @@ arithmetic plus `memcpy`/`reinterpret_cast`.
 - `take(n)` gives the next `n` bytes as a view; `skip(n)` passes over them.
 - `read<T, std::endian::big|little>()`, `read_big_endian<T>()`,
   `read_little_endian<T>()` assemble an integer byte by byte, independent of the
-  host's byte order and of alignment.
+  host's byte order and of alignment. With `__cpp_lib_byteswap` (C++23) on a big-
+  or little-endian host the bytes are copied as one value and swapped with
+  `std::byteswap` when the order differs; otherwise they are shifted in one by
+  one. Both give the same value, and the length is checked first either way.
 - `read_prefixed<Length, Order>()` reads a length and then that many bytes. A
   negative length, one that does not fit `size_t` and one past the end fail.
 

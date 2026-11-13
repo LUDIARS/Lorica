@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(Lorica VERSION 0.1.0 LANGUAGES CXX)
+include(cmake/LoricaCxxStandard.cmake)
+lorica_use_iso_cxx23()
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -74,6 +76,22 @@ if(LORICA_BUILD_TESTS)
         add_test(NAME "${name}" COMMAND "${CMAKE_COMMAND}" -E false)
         set_tests_properties("${name}" PROPERTIES DISABLED TRUE)
     endfunction()
+    # SPEC-LR-CXX23: a test variant is "min" (the component's minimum standard,
+    # plain names) or "23" (_cxx23 targets, .cxx23 tests, CXX_STANDARD 23).
+    macro(lorica_test_variant variant)
+        set(tsuf "")
+        set(nsuf "")
+        if(NOT "${variant}" STREQUAL "min")
+            set(tsuf "_cxx${variant}")
+            set(nsuf ".cxx${variant}")
+        endif()
+    endmacro()
+    function(lorica_set_test_standard target variant)
+        if(NOT variant STREQUAL "min")
+            set_target_properties(${target} PROPERTIES
+                CXX_STANDARD ${variant} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+        endif()
+    endfunction()
     # Small projects that must be refused, or applied, by Lorica's build functions.
     function(lorica_add_build_refusals name group)
         add_test(NAME "${name}" COMMAND "${CMAKE_COMMAND}" "-DLORICA_CMAKE_DIR=${PROJECT_SOURCE_DIR}/cmake"
@@ -87,6 +105,25 @@ if(LORICA_BUILD_TESTS)
         CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
     lorica_harden_target(lorica_boundary_tests)
     add_test(NAME lorica.boundary COMMAND lorica_boundary_tests)
+    # SPEC-LR-CXX23: the language version each request selects, and each test of
+    # the C++17 parts again as C++23 (.cxx23), where the compiler has a C++23 mode.
+    include(tests/language_standards.cmake)
+    lorica_add_language_standard_tests()
+    set(lorica_cxx23 FALSE)
+    set(lorica_test_variants min)
+    if("cxx_std_23" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+        set(lorica_cxx23 TRUE)
+        list(APPEND lorica_test_variants 23)
+        add_executable(lorica_boundary_tests_cxx23 tests/boundary.cpp)
+        target_link_libraries(lorica_boundary_tests_cxx23 PRIVATE Lorica::boundary)
+        set_target_properties(lorica_boundary_tests_cxx23 PROPERTIES
+            CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+        lorica_harden_target(lorica_boundary_tests_cxx23)
+        add_test(NAME lorica.boundary.cxx23 COMMAND lorica_boundary_tests_cxx23)
+    else()
+        message(STATUS "Lorica: the .cxx23 tests not run: the C++ compiler offers no C++23 mode")
+        lorica_add_disabled_test(lorica.boundary.cxx23)
+    endif()
     # The C++20 headers, as C++20 and as C++23, under the extended profile and with
     # the unbounded C APIs rejected, where the toolchain offers each. Checks the
     # toolchain cannot run are reported as not run, never as passed.
@@ -157,7 +194,7 @@ int main(int, char** argv) {
     target_compile_features(lorica_probe_runtime_format PRIVATE cxx_std_20)
     add_test(NAME lorica.checked.runtime_format COMMAND "${CMAKE_COMMAND}" "-DBUILD_DIR=${CMAKE_BINARY_DIR}"
         "-DTARGET=lorica_probe_runtime_format" "-DCONFIG=$<CONFIG>" "-DEXPECT=reject"
-        "-DDIAGNOSTIC=constant expression" -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_build_probe.cmake")
+        "-DDIAGNOSTIC=constant expression|C7595" -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_build_probe.cmake")
     set_tests_properties(lorica.checked.runtime_format PROPERTIES RESOURCE_LOCK lorica_build_tree
         SKIP_REGULAR_EXPRESSION "Lorica format probe skipped")
     if(lorica_extended)
@@ -167,25 +204,41 @@ int main(int, char** argv) {
             message(STATUS "Lorica: lorica.hardening_stops.fortify not run under AddressSanitizer")
             set(lorica_fortified 0)
         endif()
-        add_executable(lorica_hardening_tests tests/hardening.cpp)
-        target_compile_features(lorica_hardening_tests PRIVATE cxx_std_17)
-        target_compile_definitions(lorica_hardening_tests PRIVATE
-            "$<${lorica_fortified}:LORICA_TEST_EXPECT_FORTIFY=3>")
-        lorica_harden_target(lorica_hardening_tests)
-        lorica_harden_target(lorica_hardening_tests EXTENDED)
-        lorica_harden_target(lorica_hardening_tests)
-        add_test(NAME lorica.hardening_stops
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/hardening_fault.py
-                $<TARGET_FILE:lorica_hardening_tests> stops)
-        # Skipped (77) in a configuration without the FORTIFY stop, never passed.
-        add_test(NAME lorica.hardening_stops.fortify
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/hardening_fault.py
-                $<TARGET_FILE:lorica_hardening_tests> $<IF:${lorica_fortified},fortify,fortify-unchecked>)
-        set_tests_properties(lorica.hardening_stops.fortify PROPERTIES SKIP_RETURN_CODE 77)
+        # As C++17 (the plain names) and as C++23 (.cxx23).
+        foreach(standard IN ITEMS 17 23)
+            set(target lorica_hardening_tests)
+            set(suffix "")
+            if(standard EQUAL 23)
+                set(target lorica_hardening_tests_cxx23)
+                set(suffix .cxx23)
+                if(NOT lorica_cxx23)
+                    lorica_add_disabled_test(lorica.hardening_stops${suffix})
+                    lorica_add_disabled_test(lorica.hardening_stops${suffix}.fortify)
+                    continue()
+                endif()
+            endif()
+            add_executable(${target} tests/hardening.cpp)
+            target_compile_features(${target} PRIVATE cxx_std_${standard})
+            target_compile_definitions(${target} PRIVATE
+                "$<${lorica_fortified}:LORICA_TEST_EXPECT_FORTIFY=3>")
+            lorica_harden_target(${target})
+            lorica_harden_target(${target} EXTENDED)
+            lorica_harden_target(${target})
+            add_test(NAME lorica.hardening_stops${suffix}
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/hardening_fault.py
+                    $<TARGET_FILE:${target}> stops)
+            # Skipped (77) in a configuration without the FORTIFY stop, never passed.
+            add_test(NAME lorica.hardening_stops${suffix}.fortify
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/hardening_fault.py
+                    $<TARGET_FILE:${target}> $<IF:${lorica_fortified},fortify,fortify-unchecked>)
+            set_tests_properties(lorica.hardening_stops${suffix}.fortify PROPERTIES SKIP_RETURN_CODE 77)
+        endforeach()
     else()
         message(STATUS "Lorica: lorica.hardening_stops not run: ${lorica_extended_REASON}")
-        lorica_add_disabled_test(lorica.hardening_stops)
-        lorica_add_disabled_test(lorica.hardening_stops.fortify)
+        foreach(suffix IN ITEMS "" .cxx23)
+            lorica_add_disabled_test(lorica.hardening_stops${suffix})
+            lorica_add_disabled_test(lorica.hardening_stops${suffix}.fortify)
+        endforeach()
     endif()
     if(NOT WIN32)
         # Control: the harness must reject a child that exits with an error instead
@@ -220,6 +273,10 @@ int main(int, char** argv) {
     if(lorica_extended)
         list(APPEND lorica_applied lorica_hardening_tests)
         string(APPEND lorica_applied_expected " lorica_hardening_tests=extended,")
+        if(lorica_cxx23)
+            list(APPEND lorica_applied lorica_hardening_tests_cxx23)
+            string(APPEND lorica_applied_expected " lorica_hardening_tests_cxx23=extended,")
+        endif()
     endif()
     list(TRANSFORM lorica_applied REPLACE "^(.+)$"
         "\\1=$<TARGET_PROPERTY:\\1,LORICA_HARDENING_PROFILE>,$<TARGET_PROPERTY:\\1,LORICA_UNSAFE_APIS_DEPRECATED>")
@@ -229,7 +286,11 @@ int main(int, char** argv) {
     include(tests/verify_binary.cmake)
     lorica_add_verifier_tests()
     include(tests/unsafe_api_probes.cmake)
-    lorica_add_unsafe_api_probes()
+    if(lorica_cxx23)
+        lorica_add_unsafe_api_probes(20 23)
+    else()
+        lorica_add_unsafe_api_probes(20)
+    endif()
 
     add_subdirectory(tests/contract_modules)
     add_subdirectory(tests/analysis)
@@ -251,58 +312,71 @@ int main(int, char** argv) {
             endforeach()
         endif()
     endforeach()
-    add_executable(lorica_contracts_ignore tests/contracts_ignore.cpp)
-    # Headers only: an ignored contract must not need the runtime library.
-    target_link_libraries(lorica_contracts_ignore PRIVATE Lorica::boundary)
-    target_compile_definitions(lorica_contracts_ignore PRIVATE LORICA_CONTRACT_EVALUATION_SEMANTIC=ignore)
-    lorica_harden_target(lorica_contracts_ignore)
-    add_test(NAME lorica.contracts.ignore COMMAND lorica_contracts_ignore)
+    foreach(cxx IN LISTS lorica_test_variants)
+        lorica_test_variant(${cxx})
+        add_executable(lorica_contracts_ignore${tsuf} tests/contracts_ignore.cpp)
+        # Headers only: an ignored contract must not need the runtime library.
+        target_link_libraries(lorica_contracts_ignore${tsuf} PRIVATE Lorica::boundary)
+        target_compile_definitions(lorica_contracts_ignore${tsuf} PRIVATE
+            LORICA_CONTRACT_EVALUATION_SEMANTIC=ignore)
+        lorica_set_test_standard(lorica_contracts_ignore${tsuf} ${cxx})
+        lorica_harden_target(lorica_contracts_ignore${tsuf})
+        add_test(NAME lorica.contracts.ignore${nsuf} COMMAND lorica_contracts_ignore${tsuf})
+    endforeach()
     set(lorica_contract_variants enforce quick_enforce)
     if(NOT MSVC)
         list(APPEND lorica_contract_variants enforce_noexceptions)
     endif()
     # Each variant as in-body macros and as an overlay: the outcomes must not differ.
-    foreach(variant IN LISTS lorica_contract_variants)
-        string(REPLACE "_noexceptions" "" semantic "${variant}")
-        set(harness_exceptions exceptions)
-        if(variant MATCHES "_noexceptions$")
-            set(harness_exceptions)
-        endif()
-        foreach(form IN ITEMS "" overlay_)
-            set(target lorica_contracts_${form}${variant})
-            add_executable(${target} tests/contracts_termination.cpp)
-            target_link_libraries(${target} PRIVATE Lorica::contracts)
-            target_compile_definitions(${target} PRIVATE
-                LORICA_CONTRACT_EVALUATION_SEMANTIC=${semantic}
-                $<$<BOOL:${form}>:LORICA_TEST_OVERLAY>)
+    foreach(cxx IN LISTS lorica_test_variants)
+        lorica_test_variant(${cxx})
+        foreach(variant IN LISTS lorica_contract_variants)
+            string(REPLACE "_noexceptions" "" semantic "${variant}")
+            set(harness_exceptions exceptions)
             if(variant MATCHES "_noexceptions$")
-                target_compile_options(${target} PRIVATE -fno-exceptions)
+                set(harness_exceptions)
             endif()
-            lorica_harden_target(${target})
-            string(REPLACE "_" "" harness_form "${form}")
-            add_test(NAME lorica.contracts.${form}${variant}
-                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/contract_termination.py
-                    $<TARGET_FILE:${target}> ${semantic} ${harness_form} ${harness_exceptions})
+            foreach(form IN ITEMS "" overlay_)
+                set(target lorica_contracts_${form}${variant}${tsuf})
+                add_executable(${target} tests/contracts_termination.cpp)
+                target_link_libraries(${target} PRIVATE Lorica::contracts)
+                target_compile_definitions(${target} PRIVATE
+                    LORICA_CONTRACT_EVALUATION_SEMANTIC=${semantic}
+                    $<$<BOOL:${form}>:LORICA_TEST_OVERLAY>)
+                if(variant MATCHES "_noexceptions$")
+                    target_compile_options(${target} PRIVATE -fno-exceptions)
+                endif()
+                lorica_set_test_standard(${target} ${cxx})
+                lorica_harden_target(${target})
+                string(REPLACE "_" "" harness_form "${form}")
+                add_test(NAME lorica.contracts.${form}${variant}${nsuf}
+                    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/contract_termination.py
+                        $<TARGET_FILE:${target}> ${semantic} ${harness_form} ${harness_exceptions})
+            endforeach()
         endforeach()
     endforeach()
     # What must not compile: built by its test only.
-    foreach(case IN ITEMS "condition_arity:1:ignore:a precondition is not callable"
-                          "message_argument:2:enforce:holds"
-                          "unknown_semantic:3:strict:strict")
-        string(REPLACE ":" ";" case "${case}")
-        list(GET case 0 name)
-        list(GET case 1 number)
-        list(GET case 2 semantic)
-        list(GET case 3 diagnostic)
-        add_executable(lorica_probe_contract_${name} EXCLUDE_FROM_ALL tests/contracts_rejected.cpp)
-        target_link_libraries(lorica_probe_contract_${name} PRIVATE Lorica::contracts)
-        target_compile_definitions(lorica_probe_contract_${name} PRIVATE
-            LORICA_TEST_REJECT=${number} LORICA_CONTRACT_EVALUATION_SEMANTIC=${semantic})
-        add_test(NAME lorica.contracts.rejected.${name} COMMAND "${CMAKE_COMMAND}"
-            "-DBUILD_DIR=${CMAKE_BINARY_DIR}" "-DTARGET=lorica_probe_contract_${name}" "-DCONFIG=$<CONFIG>"
-            "-DEXPECT=reject" "-DDIAGNOSTIC=${diagnostic}"
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_build_probe.cmake")
-        set_tests_properties(lorica.contracts.rejected.${name} PROPERTIES RESOURCE_LOCK lorica_build_tree)
+    foreach(cxx IN LISTS lorica_test_variants)
+        lorica_test_variant(${cxx})
+        foreach(case IN ITEMS "condition_arity:1:ignore:a precondition is not callable"
+                              "message_argument:2:enforce:holds"
+                              "unknown_semantic:3:strict:strict")
+            string(REPLACE ":" ";" case "${case}")
+            list(GET case 0 name)
+            list(GET case 1 number)
+            list(GET case 2 semantic)
+            list(GET case 3 diagnostic)
+            add_executable(lorica_probe_contract_${name}${tsuf} EXCLUDE_FROM_ALL tests/contracts_rejected.cpp)
+            target_link_libraries(lorica_probe_contract_${name}${tsuf} PRIVATE Lorica::contracts)
+            target_compile_definitions(lorica_probe_contract_${name}${tsuf} PRIVATE
+                LORICA_TEST_REJECT=${number} LORICA_CONTRACT_EVALUATION_SEMANTIC=${semantic})
+            lorica_set_test_standard(lorica_probe_contract_${name}${tsuf} ${cxx})
+            add_test(NAME lorica.contracts.rejected.${name}${nsuf} COMMAND "${CMAKE_COMMAND}"
+                "-DBUILD_DIR=${CMAKE_BINARY_DIR}" "-DTARGET=lorica_probe_contract_${name}${tsuf}" "-DCONFIG=$<CONFIG>"
+                "-DEXPECT=reject" "-DDIAGNOSTIC=${diagnostic}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_build_probe.cmake")
+            set_tests_properties(lorica.contracts.rejected.${name}${nsuf} PROPERTIES RESOURCE_LOCK lorica_build_tree)
+        endforeach()
     endforeach()
     # The semantic chosen from the build, by function and by injection, over
     # sources that never change.
@@ -327,6 +401,24 @@ int main(int, char** argv) {
         add_test(NAME lorica.protection_write_denied
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/protection_fault.py
                 $<TARGET_FILE:lorica_protection_tests> --write)
+        # SPEC-LR-CXX23: the installed library is C++17; its source and the test are
+        # also compiled as C++23, into a test-only library.
+        if(lorica_cxx23)
+            add_library(lorica_protection_cxx23 STATIC ${lorica_protection_source})
+            target_link_libraries(lorica_protection_cxx23 PUBLIC Lorica::boundary)
+            target_compile_features(lorica_protection_cxx23 PUBLIC cxx_std_23)
+            lorica_harden_target(lorica_protection_cxx23)
+            add_executable(lorica_protection_tests_cxx23 tests/protection.cpp)
+            target_link_libraries(lorica_protection_tests_cxx23 PRIVATE lorica_protection_cxx23 Threads::Threads)
+            lorica_harden_target(lorica_protection_tests_cxx23)
+            add_test(NAME lorica.protection.cxx23 COMMAND lorica_protection_tests_cxx23)
+            add_test(NAME lorica.protection_write_denied.cxx23
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/protection_fault.py
+                    $<TARGET_FILE:lorica_protection_tests_cxx23> --write)
+        else()
+            lorica_add_disabled_test(lorica.protection.cxx23)
+            lorica_add_disabled_test(lorica.protection_write_denied.cxx23)
+        endif()
         if(NOT WIN32)
             # Control: the harness must reject a fault the child does not attribute to the sealed byte.
             add_test(NAME lorica.protection_write_misdirected
@@ -355,14 +447,20 @@ int main(int, char** argv) {
 struct pod { int value; };
 int main() { const lorica::sealed_value<@type@> value{{}}; return 0; }
 ]=] @ONLY)
-            add_executable(lorica_probe_sealed_${probe} EXCLUDE_FROM_ALL
-                "${CMAKE_CURRENT_BINARY_DIR}/sealed_probes/${probe}.cpp")
-            target_link_libraries(lorica_probe_sealed_${probe} PRIVATE Lorica::protection)
-            add_test(NAME lorica.protection.rejects_${probe} COMMAND "${CMAKE_COMMAND}"
-                "-DBUILD_DIR=${CMAKE_BINARY_DIR}" "-DTARGET=lorica_probe_sealed_${probe}" "-DCONFIG=$<CONFIG>"
-                "-DEXPECT=reject" "-DDIAGNOSTIC=sealed_value requires an unqualified arithmetic or enum type"
-                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_build_probe.cmake")
-            set_tests_properties(lorica.protection.rejects_${probe} PROPERTIES RESOURCE_LOCK lorica_build_tree)
+            foreach(cxx IN LISTS lorica_test_variants)
+                lorica_test_variant(${cxx})
+                add_executable(lorica_probe_sealed_${probe}${tsuf} EXCLUDE_FROM_ALL
+                    "${CMAKE_CURRENT_BINARY_DIR}/sealed_probes/${probe}.cpp")
+                target_link_libraries(lorica_probe_sealed_${probe}${tsuf} PRIVATE Lorica::protection)
+                lorica_set_test_standard(lorica_probe_sealed_${probe}${tsuf} ${cxx})
+                add_test(NAME lorica.protection.rejects_${probe}${nsuf} COMMAND "${CMAKE_COMMAND}"
+                    "-DBUILD_DIR=${CMAKE_BINARY_DIR}" "-DTARGET=lorica_probe_sealed_${probe}${tsuf}"
+                    "-DCONFIG=$<CONFIG>" "-DEXPECT=reject"
+                    "-DDIAGNOSTIC=sealed_value requires an unqualified arithmetic or enum type"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_build_probe.cmake")
+                set_tests_properties(lorica.protection.rejects_${probe}${nsuf} PROPERTIES
+                    RESOURCE_LOCK lorica_build_tree)
+            endforeach()
         endforeach()
         # The installed package, found and injected by independent projects.
         add_test(NAME lorica.protection_consumer COMMAND "${CMAKE_COMMAND}"
@@ -374,20 +472,29 @@ int main() { const lorica::sealed_value<@type@> value{{}}; return 0; }
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/protection_consumer.cmake")
         set_tests_properties(lorica.protection_consumer PROPERTIES RESOURCE_LOCK lorica_build_tree)
         # Sealed packs: the API, then each violation in a child judged from outside.
-        foreach(name pack pack_fault)
-            add_executable(lorica_${name}_tests tests/${name}.cpp)
-            target_link_libraries(lorica_${name}_tests PRIVATE Lorica::protection)
-            lorica_harden_target(lorica_${name}_tests)
-        endforeach()
-        add_test(NAME lorica.pack.unit COMMAND lorica_pack_tests)
-        foreach(case IN ITEMS control:exit-0 write_first:access-violation write_last:access-violation
-                              load_outside:abort at_outside:abort)
-            string(REPLACE ":" ";" case "${case}")
-            list(GET case 0 mode)
-            list(GET case 1 ending)
-            add_test(NAME lorica.pack.stops.${mode}
-                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/pack_fault.py
-                    $<TARGET_FILE:lorica_pack_fault_tests> ${mode} ${ending})
+        # As C++17 with the installed library and as C++23 with the test-only one.
+        foreach(cxx IN LISTS lorica_test_variants)
+            lorica_test_variant(${cxx})
+            set(library Lorica::protection)
+            if(NOT cxx STREQUAL "min")
+                set(library lorica_protection${tsuf})
+            endif()
+            foreach(name pack pack_fault)
+                add_executable(lorica_${name}_tests${tsuf} tests/${name}.cpp)
+                target_link_libraries(lorica_${name}_tests${tsuf} PRIVATE ${library})
+                lorica_set_test_standard(lorica_${name}_tests${tsuf} ${cxx})
+                lorica_harden_target(lorica_${name}_tests${tsuf})
+            endforeach()
+            add_test(NAME lorica.pack.unit${nsuf} COMMAND lorica_pack_tests${tsuf})
+            foreach(case IN ITEMS control:exit-0 write_first:access-violation write_last:access-violation
+                                  load_outside:abort at_outside:abort)
+                string(REPLACE ":" ";" case "${case}")
+                list(GET case 0 mode)
+                list(GET case 1 ending)
+                add_test(NAME lorica.pack.stops.${mode}${nsuf}
+                    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/pack_fault.py
+                        $<TARGET_FILE:lorica_pack_fault_tests${tsuf}> ${mode} ${ending})
+            endforeach()
         endforeach()
         # Readers without synchronisation can only fail where a race is reported.
         if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=thread")
@@ -432,4 +539,5 @@ write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/LoricaConfigVersion
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/LoricaConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/LoricaConfigVersion.cmake
     cmake/LoricaHardening.cmake cmake/LoricaContracts.cmake cmake/LoricaInject.cmake
+    cmake/LoricaCxxStandard.cmake cmake/LoricaCxxStandardOverride.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Lorica)
