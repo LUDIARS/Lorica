@@ -10,7 +10,7 @@ set(lorica_example ${PROJECT_SOURCE_DIR}/examples/analysis)
 add_test(NAME lorica.analysis.example.over_threshold
     COMMAND ${lorica_analyze} --max-cognitive 10 ${lorica_example}/sample.cpp)
 set_tests_properties(lorica.analysis.example.over_threshold PROPERTIES
-    PASS_REGULAR_EXPRESSION "FAIL [^\n]*sample.cpp:11 parse_flags: cognitive 11 > 10\n")
+    PASS_REGULAR_EXPRESSION "FAIL [^\n]*sample.cpp:11 parse_flags: cognitive 11 > 10\r?\n")
 add_test(NAME lorica.analysis.example.baseline
     COMMAND ${lorica_analyze} --strict --max-cognitive 10
         --baseline ${lorica_example}/analysis-baseline.json ${lorica_example}/sample.cpp)
@@ -35,7 +35,7 @@ set(lorica_shared_state ${Python3_EXECUTABLE} -B ${PROJECT_SOURCE_DIR}/tools/lor
 add_test(NAME lorica.analysis.example.shared_state
     COMMAND ${lorica_shared_state} --max-inconsistent-locking 0 --max-unsynchronized 0 ${lorica_example}/shared.cpp)
 set_tests_properties(lorica.analysis.example.shared_state PROPERTIES
-    PASS_REGULAR_EXPRESSION "FAIL [^\n]*shared.cpp:15 registry::hits_: inconsistent-locking 1 > 0\n")
+    PASS_REGULAR_EXPRESSION "FAIL [^\n]*shared.cpp:15 registry::hits_: inconsistent-locking 1 > 0\r?\n")
 add_test(NAME lorica.analysis.example.shared_state.baseline
     COMMAND ${lorica_shared_state} --strict --max-inconsistent-locking 0 --max-unsynchronized 0
         --baseline ${lorica_example}/shared-state-baseline.json ${lorica_example}/shared.cpp)
