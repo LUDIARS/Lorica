@@ -33,6 +33,8 @@ def matched(actual, expected):
 
 
 class ReadmeTests(unittest.TestCase):
+    maxDiff = None  # Keep the actual compiler diagnostic visible in CI logs.
+
     def test_console_blocks(self):
         steps = sessions((EXAMPLE / "README.md").read_text(encoding="utf-8"))
         self.assertGreaterEqual(len(steps), 5)
@@ -58,6 +60,11 @@ class ReadmeTests(unittest.TestCase):
                                          cwd=work, capture_output=True, text=True)
                     status = run.returncode
                     self.assertEqual(matched(run.stdout, expected), expected)
+                    if "--emit-patch" in argv:
+                        patch = Path(work, argv[argv.index("--emit-patch") + 1]).read_text(encoding="utf-8")
+                        added = [line for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++")]
+                        self.assertEqual(added, [
+                            "+constexpr inline int scaled(int value, int factor) { return value * factor; }"])
             # The committed baselines are what the README's commands write.
             for baseline in ("analysis-baseline.json", "shared-state-baseline.json"):
                 self.assertEqual(Path(work, baseline).read_text(), (EXAMPLE / baseline).read_text())

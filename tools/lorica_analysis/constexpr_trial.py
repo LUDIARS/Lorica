@@ -62,9 +62,18 @@ class Trial(NamedTuple):
     removed: List[str]                         # flags taken out of the units' commands
 
 
+def _display_path(path: str) -> str:
+    if not os.path.isabs(path):
+        return path  # includes the synthetic #line name "lorica-witness"
+    try:
+        relative = os.path.relpath(os.path.realpath(path), os.path.realpath(os.getcwd()))
+    except ValueError:  # different Windows drives
+        return path
+    return path if relative == os.pardir or relative.startswith(os.pardir + os.sep) else relative
+
+
 def _where(path: str, line: int, message: str) -> str:
-    shown = os.path.relpath(path) if not os.path.isabs(path) or path.startswith(os.getcwd()) else path
-    return "%s:%d: %s" % (shown, line, message)
+    return "%s:%d: %s" % (_display_path(path), line, message)
 
 
 def witness_names(code: str) -> Set[str]:
@@ -146,7 +155,7 @@ class _Run:
 
     @staticmethod
     def unit_path(unit: compiler.Unit) -> str:
-        return os.path.relpath(unit.file) if unit.file.startswith(os.getcwd()) else unit.file
+        return _display_path(unit.file)
 
     def unit_label(self, unit: compiler.Unit) -> str:
         return "%s (%s)" % (self.unit_path(unit), self.configuration.label)
