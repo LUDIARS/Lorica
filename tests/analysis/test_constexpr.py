@@ -286,6 +286,15 @@ Multiple include guards may be useful for:
                 (N("/copy/src/u.cpp"), 3, "required from here"),
                 (N("/copy/include/lib/b.hpp"), 2, "'int NC::size_nc() const' declared here")))])
 
+    def test_windows_drive_in_gcc_errors_and_notes(self):
+        header = r"C:\Build Dir\tree\a.hpp"
+        output = (".. {0}\r\n{0}:7:16: error: fake rejection\r\n"
+                  "{0}:6:28: note: previous declaration\r\n").format(header)
+        parsed = compiler.parse(output, "")
+        self.assertEqual(parsed.headers, [header])
+        self.assertEqual(parsed.errors, [compiler.Diagnostic(
+            header, 7, "fake rejection", ((header, 6, "previous declaration"),))])
+
     def test_clang(self):
         out = compiler.parse(self.CLANG_OUTPUT, "/")
         self.assertEqual(out.probes, {0})
@@ -424,10 +433,10 @@ class TrialTests(unittest.TestCase):
             "directory": str(self.root / "build"), "file": str(self.root / name),
             "arguments": ["g++", "-I../include"] + flags + ["-c", str(self.root / name)]} for name, flags in units]))
 
-    def run_json(self, *extra, analysed=("include",)):
+    def run_json(self, *extra, analysed=("include",), witnesses="include/witnesses.json"):
         status, out, err = run_cli("constexpr", *[self.root / p for p in analysed], "--compile-commands",
                                    self.root / "build/compile_commands.json", "--witnesses",
-                                   self.root / "include/witnesses.json", "--std", "17", "--json", *extra)
+                                   self.root / witnesses, "--std", "17", "--json", *extra)
         data = json.loads(out) if out.startswith("{") else {}
         return status, data, err
 
@@ -459,6 +468,22 @@ class TrialTests(unittest.TestCase):
         hidden = {c["name"]: c["hidden"] for c in data["constexpr"]["candidates"] if c["hidden"]}
         self.assertEqual(hidden, {"tmpl": TEMPLATE})
         self.assertEqual({f["name"]: f["metrics"] for f in data["functions"]}["add"], {"witnessed": 1, "accepted": 0})
+
+    def test_diagnostics_match_candidates_through_a_directory_alias(self):
+        alias = self.root / "headers"
+        if os.name == "nt":
+            # A directory junction works without the symlink privilege on Windows.
+            subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", "headers", "include"],
+                           cwd=self.root, check=True, capture_output=True)
+        else:
+            alias.symlink_to(self.root / "include", target_is_directory=True)
+        # Model a runner whose working directory also uses the alias spelling.
+        with mock.patch.object(os, "getcwd", return_value=str(alias)):
+            status, data, _ = self.run_json(analysed=(alias,), witnesses=alias / "witnesses.json")
+        self.assertEqual(status, 0, data["errors"])
+        states = self.states(data)
+        self.assertEqual(states["bad"]["g++ c++17"], ("rejected", N("lib/b.hpp") + ":5: fake rejection"))
+        self.assertEqual(states["twice"]["g++ c++17"][0], "witnessed")
 
     def test_fixed_point_recompiles_after_a_rejection(self):
         self.run_json()

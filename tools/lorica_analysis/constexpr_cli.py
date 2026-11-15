@@ -199,6 +199,11 @@ def run(args) -> int:
         errors.append("no C++ translation unit to compile")
     located, texts, unparsed, not_analysed, order = {}, {}, [], [], []
     for path in files:
+        # Overlay.to_original returns names under the resolved root (e.g. a
+        # Windows short temp path expanded to its long name). Index by that name.
+        key = os.path.realpath(path)
+        if key in texts:
+            continue
         try:
             text = sources.read(path)
         except sources.InputError as error:
@@ -209,7 +214,6 @@ def run(args) -> int:
         if "�" in text and found.candidates:
             found = found._replace(candidates=[], refused=found.refused + [
                 Region(path, 1, text.count("\n") + 1, "constexpr: not valid UTF-8, not mutated")])
-        key = os.path.normpath(os.path.abspath(path))
         located[key], texts[key] = found, (source, text)
         unparsed += source.unparsed + found.refused
         not_analysed += source.not_analysed
